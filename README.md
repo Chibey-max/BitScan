@@ -61,3 +61,7 @@ npm run dev
 ```
 
 The frontend defaults to `http://127.0.0.1:3000` and calls the API at `http://127.0.0.1:3001`.
+
+## Deploy
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for the recommended Vercel + Render deployment setup.
