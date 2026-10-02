@@ -1,10 +1,13 @@
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
+import EntityLink from "@/app/entity-link";
+import ErrorState from "@/app/error-state";
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 import {
   TransactionDetail,
   compactHash,
+  errorMessage,
   formatBtcFromSats,
   formatBytes,
   formatNumber,
@@ -27,9 +30,24 @@ export default async function TransactionPage({
   const suffix = block_hash
     ? `?block_hash=${encodeURIComponent(block_hash)}`
     : "";
-  const tx = await getJson<TransactionDetail>(
-    `/api/tx/${encodeURIComponent(txid)}${suffix}`,
-  );
+  let tx: TransactionDetail;
+  try {
+    tx = await getJson<TransactionDetail>(
+      `/api/tx/${encodeURIComponent(txid)}${suffix}`,
+    );
+  } catch (error) {
+    return (
+      <ErrorState
+        title="Transaction not available"
+        message={errorMessage(
+          error,
+          "The provider could not return this transaction. If this is an old confirmed tx, open it from its block so the request can include the block hash.",
+        )}
+        secondaryHref={block_hash ? `/block/${block_hash}` : undefined}
+        secondaryLabel={block_hash ? "Open block" : undefined}
+      />
+    );
+  }
   const totalOut = tx.outputs.reduce((sum, output) => sum + output.value_sat, 0);
 
   return (
@@ -49,14 +67,16 @@ export default async function TransactionPage({
               Transaction
             </h1>
             <div className="hash-line">
-              <p className="mono">{tx.txid}</p>
+              <Link href={`/tx/${tx.txid}${tx.blockhash ? `?block_hash=${tx.blockhash}` : ""}`} className="entity-link mono">
+                {tx.txid}
+              </Link>
               <CopyButton value={tx.txid} label="Copy txid" compact />
             </div>
           </div>
         </header>
 
-        <div className="grid gap-5 py-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(330px,0.75fr)] reveal-panel reveal-delay-1">
-          <section className="space-y-5">
+        <div className="tx-detail-grid reveal-panel reveal-delay-1">
+          <section className="tx-primary-column">
             <div className="grid gap-4 md:grid-cols-4">
               <Stat
                 icon="deployed_code"
@@ -85,82 +105,58 @@ export default async function TransactionPage({
               />
             </div>
 
-            <section className="panel flow-panel">
-              <div className="panel-heading detail-panel-heading">
+            <section className="panel note-panel">
+              <div className="flex items-start gap-3">
+                <MaterialIcon name="auto_stories" className="mt-1 text-[var(--accent)]" />
                 <div>
-                  <h2 className="text-xl font-semibold">Transaction flow</h2>
-                  <p className="text-sm text-[var(--muted)]">
-                    {tx.inputs.length.toLocaleString("en-US")} input
-                    {tx.inputs.length === 1 ? "" : "s"} into{" "}
-                    {tx.outputs.length.toLocaleString("en-US")} output
-                    {tx.outputs.length === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <span className="flow-chip">{tx.confirmations ? "confirmed" : "mempool"}</span>
-              </div>
-              <div className="transaction-flow">
-                <div className="flow-spine" aria-hidden="true">
-                  <span />
-                  <MaterialIcon name="arrow_forward" />
-                  <span />
-                </div>
-                <div className="flow-column">
-                  <h3>Inputs</h3>
-                  {tx.inputs.map((input, index) => (
-                    <article key={`${input.txid ?? "coinbase"}:${index}`} className="flow-item">
-                      <p className="flow-label">Input {index}</p>
-                      {input.coinbase ? (
-                        <p className="mt-2 break-all font-mono text-sm">
-                          coinbase {compactHash(input.coinbase, 18, 12)}
-                        </p>
-                      ) : (
-                        <div className="mt-2 space-y-2">
-                          <div className="copy-line">
-                            <p className="break-all font-mono text-sm">
-                              {input.txid}:{input.vout}
-                            </p>
-                            {input.txid ? (
-                              <CopyButton value={input.txid} label="Copy input txid" compact />
-                            ) : null}
-                          </div>
-                          <p className="text-sm text-[var(--muted)]">
-                            Previous output:{" "}
-                            {input.previous_output
-                              ? formatBtcFromSats(input.previous_output.value_sat)
-                              : "not available from provider"}
-                          </p>
-                        </div>
-                      )}
-                    </article>
-                  ))}
-                </div>
-                <div className="flow-column">
-                  <h3>Outputs</h3>
-                  {tx.outputs.map((output) => (
-                    <article key={output.n} className="flow-item output-item">
-                      <div className="flow-output-head">
-                        <span>Vout {output.n}</span>
-                        <strong>{formatBtcFromSats(output.value_sat)}</strong>
-                      </div>
-                      <p className="mt-2 truncate font-mono text-sm">
-                        {output.address ?? output.script_type ?? "unknown"}
-                      </p>
-                      {output.address ? (
-                        <CopyButton value={output.address} label="Copy address" compact />
-                      ) : null}
-                    </article>
-                  ))}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xl font-semibold">{tx.story.headline}</h2>
+                    <span className="flow-chip">{tx.story.confidence}</span>
+                  </div>
+                  <div className="mt-3 space-y-2 text-sm leading-6 text-[var(--muted)]">
+                    {tx.story.sentences.map((sentence) => (
+                      <p key={sentence}>{sentence}</p>
+                    ))}
+                  </div>
+                  {tx.story.tags.length > 0 ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {tx.story.tags.map((tag) => (
+                        <span key={tag} className="query-chip">{tag}</span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </section>
+
+            {tx.fee_report ? (
+              <section className="panel block-fullness-panel">
+                <div>
+                  <p className="section-kicker">Fee report card</p>
+                  <h2>Grade {tx.fee_report.grade}</h2>
+                  <p>
+                    {tx.fee_report.verdict} Fee rate:{" "}
+                    {tx.fee_report.fee_rate_sat_vb} sat/vB.
+                  </p>
+                </div>
+                <FeeStrip report={tx.fee_report} />
+              </section>
+            ) : null}
+
           </section>
 
-          <aside className="space-y-5">
+          <aside className="tx-side-column">
             <section className="panel side-detail-panel">
               <h2 className="text-xl font-semibold">Metadata</h2>
               <dl className="mt-4 space-y-4 text-sm">
                 <Detail label="Hash" value={tx.hash} mono copy />
-                <Detail label="Block" value={tx.blockhash ?? "mempool"} mono copy={Boolean(tx.blockhash)} />
+                <Detail
+                  label="Block"
+                  value={tx.blockhash ?? "mempool"}
+                  href={tx.blockhash ? `/block/${tx.blockhash}` : undefined}
+                  mono
+                  copy={Boolean(tx.blockhash)}
+                />
                 <Detail label="Size" value={formatBytes(tx.size)} />
                 <Detail label="Weight" value={formatNumber(tx.weight)} />
                 <Detail label="Version" value={formatNumber(tx.version)} />
@@ -170,20 +166,116 @@ export default async function TransactionPage({
 
             <section className="panel note-panel">
               <div className="flex items-start gap-3">
-                <MaterialIcon name="tag" className="mt-1 text-[var(--accent)]" />
+                <MaterialIcon name="receipt_long" className="mt-1 text-[var(--accent)]" />
                 <div>
-                  <h2 className="text-lg font-semibold">Provider note</h2>
+                  <h2 className="text-lg font-semibold">Payment receipt</h2>
                   <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                    If a direct txid URL fails, open the containing block first.
-                    BitRPC accepts confirmed tx lookup with a block hash.
+                    Open a clean proof-of-payment receipt for any output address
+                    in this transaction.
                   </p>
+                  {tx.outputs.find((output) => output.address) ? (
+                    <Link
+                      href={`/receipt?txid=${tx.txid}&address=${tx.outputs.find((output) => output.address)?.address ?? ""}${tx.blockhash ? `&block_hash=${tx.blockhash}` : ""}`}
+                      className="outline-button mt-4"
+                    >
+                      <MaterialIcon name="open_in_new" />
+                      Open receipt
+                    </Link>
+                  ) : null}
                 </div>
               </div>
             </section>
           </aside>
+
+          <section className="panel flow-panel tx-flow-wide">
+            <div className="panel-heading detail-panel-heading">
+              <div>
+                <h2 className="text-xl font-semibold">Transaction flow</h2>
+                <p className="text-sm text-[var(--muted)]">
+                  {tx.inputs.length.toLocaleString("en-US")} input
+                  {tx.inputs.length === 1 ? "" : "s"} into{" "}
+                  {tx.outputs.length.toLocaleString("en-US")} output
+                  {tx.outputs.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <span className="flow-chip">{tx.confirmations ? "confirmed" : "mempool"}</span>
+            </div>
+            <div className="transaction-flow">
+              <div className="flow-column">
+                <h3>Inputs</h3>
+                {tx.inputs.map((input, index) => (
+                  <article key={`${input.txid ?? "coinbase"}:${index}`} className="flow-item">
+                    <p className="flow-label">Input {index}</p>
+                    {input.coinbase ? (
+                      <p className="mt-2 break-all font-mono text-sm">
+                        coinbase {compactHash(input.coinbase, 18, 12)}
+                      </p>
+                    ) : (
+                      <div className="mt-2 space-y-2">
+                        {input.txid ? (
+                          <EntityLink
+                            href={`/tx/${input.txid}`}
+                            value={input.txid}
+                            displayValue={`${input.txid}:${input.vout}`}
+                            copyValue={input.txid}
+                            label="input txid"
+                            className="text-sm"
+                          />
+                        ) : null}
+                        <p className="text-sm text-[var(--muted)]">
+                          Previous output:{" "}
+                          {input.previous_output
+                            ? formatBtcFromSats(input.previous_output.value_sat)
+                            : "not available from provider"}
+                        </p>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+              <div className="flow-column">
+                <h3>Outputs</h3>
+                {tx.outputs.map((output) => (
+                  <article key={output.n} className="flow-item output-item">
+                    <div className="flow-output-head">
+                      <span>Vout {output.n}</span>
+                      <strong>{formatBtcFromSats(output.value_sat)}</strong>
+                    </div>
+                    {output.address ? (
+                      <EntityLink
+                        href={`/address/${output.address}`}
+                        value={output.address}
+                        label="address"
+                        className="mt-2 text-sm"
+                      />
+                    ) : (
+                      <p className="mt-2 break-all font-mono text-sm">
+                        {output.script_type ?? "unknown"}
+                      </p>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
       </section>
     </main>
+  );
+}
+
+function FeeStrip({ report }: { report: NonNullable<TransactionDetail["fee_report"]> }) {
+  const percentile = report.percentile ?? undefined;
+  const marker = percentile ?? Math.min(100, report.fee_rate_sat_vb * 4);
+  return (
+    <div className="block-fill block-fill-large">
+      <span className="block-fill-track">
+        <span style={{ width: `${Math.min(100, marker)}%` }} />
+      </span>
+      <span className="block-fill-label">
+        {percentile === undefined ? "fallback grade" : `${percentile.toFixed(1)} percentile`}
+      </span>
+    </div>
   );
 }
 
@@ -215,11 +307,13 @@ function Stat({
 function Detail({
   label,
   value,
+  href,
   mono = false,
   copy = false,
 }: {
   label: string;
   value: string;
+  href?: string;
   mono?: boolean;
   copy?: boolean;
 }) {
@@ -233,7 +327,13 @@ function Detail({
           mono ? "font-mono text-xs" : "text-sm"
         }`}
       >
-        <span>{value}</span>
+        {href ? (
+          <Link href={href} className="entity-link">
+            {value}
+          </Link>
+        ) : (
+          <span>{value}</span>
+        )}
         {copy ? <CopyButton value={value} label={`Copy ${label}`} compact /> : null}
       </dd>
     </div>
