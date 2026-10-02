@@ -15,6 +15,11 @@ const jetBrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "BitScan",
   description: "Bitcoin explorer dashboard for a Rust node-backed API.",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
