@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import CopyButton from "@/app/copy-button";
 import {
   BlockSummary,
@@ -74,14 +75,23 @@ export default function ExplorerHome({
                   <MaterialIcon name="arrow_forward" />
                 </Link>
                 <div className="tip-hash hash-line">
-                  <p className="mono">{tip.hash}</p>
+                  <Link href={`/block/${tip.hash}`} className="entity-link mono">
+                    {tip.hash}
+                  </Link>
                   <CopyButton value={tip.hash} label="Copy block hash" compact />
                 </div>
               </div>
-              <div className="tip-orbit" aria-hidden="true">
-                <span />
-                <span />
-                <span />
+              <div className="tip-bitcoin-mark" aria-hidden="true">
+                <span className="tip-bitcoin-ring" />
+                <span className="tip-bitcoin-halo" />
+                <Image
+                  src="/Bitcoin.svg"
+                  alt=""
+                  width={112}
+                  height={112}
+                  priority
+                  className="tip-bitcoin-svg"
+                />
               </div>
             </div>
             <div className="tip-meta">
@@ -199,7 +209,9 @@ export default function ExplorerHome({
                   <MaterialIcon name="schedule" />
                   <h2>Latest mined</h2>
                 </div>
-                <p className="mono">{compactHash(latestBlock.hash, 12, 10)}</p>
+                <Link href={`/block/${latestBlock.hash}`} className="entity-link mono">
+                  {compactHash(latestBlock.hash, 12, 10)}
+                </Link>
                 <div className="last-block-stats">
                   <MetricMini label="Mined" value={formatRelativeBlockTime(latestBlock.timestamp)} />
                   <MetricMini label="Txs" value={latestBlock.tx_count.toLocaleString("en-US")} />
