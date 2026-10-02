@@ -1,13 +1,16 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
+    response::Response,
 };
 use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::error::AppError;
+use crate::features;
 use crate::model::{
-    AddressResponse, AddressUtxo, TransactionDetail, TxInput, TxOutput, TxQuery, TxSummary,
+    AddressResponse, AddressUtxo, ReceiptQuery, TransactionDetail, TxInput, TxOutput, TxQuery,
+    TxSummary,
 };
 use crate::rpc::RpcClient;
 
@@ -21,40 +24,42 @@ pub async fn transaction(
     Path(txid): Path<String>,
     Query(query): Query<TxQuery>,
 ) -> Result<Json<TransactionDetail>, AppError> {
-    if !is_hex_hash(&txid) {
-        return Err(AppError::BadRequest(
-            "transaction id must be 64 hex characters".into(),
-        ));
-    }
+    let tx = load_verbose_tx(&state.rpc, &txid, query.block_hash).await?;
+    Ok(Json(tx_detail_with_fallbacks(&state, &tx).await?))
+}
 
-    let params = match query.block_hash {
-        Some(block_hash) if is_hex_hash(&block_hash) => json!([txid, true, block_hash]),
-        Some(_) => {
-            return Err(AppError::BadRequest(
-                "block_hash must be 64 hex characters".into(),
-            ));
-        }
-        None => json!([txid, true]),
-    };
+pub async fn fee_card_svg(
+    State(state): State<AppState>,
+    Path(txid): Path<String>,
+    Query(query): Query<TxQuery>,
+) -> Result<Response<String>, AppError> {
+    let tx = load_verbose_tx(&state.rpc, &txid, query.block_hash).await?;
+    let detail = tx_detail_with_fallbacks(&state, &tx).await?;
+    Ok(Response::builder()
+        .header("content-type", "image/svg+xml; charset=utf-8")
+        .body(features::fee_card_svg(&detail))
+        .expect("valid svg response"))
+}
 
-    let tx = state
-        .rpc
-        .call("getrawtransaction", params)
-        .await
-        .map_err(|_| {
-            AppError::NotFound(
-                "transaction was not found; provide block_hash when using a provider without txindex"
-                    .into(),
-            )
-        })?;
-
-    Ok(Json(tx_detail(&state.rpc, &tx).await?))
+pub async fn receipt(
+    State(state): State<AppState>,
+    Query(query): Query<ReceiptQuery>,
+) -> Result<Json<crate::model::ReceiptResponse>, AppError> {
+    let tx = load_verbose_tx(&state.rpc, &query.txid, query.block_hash).await?;
+    let detail = tx_detail_with_fallbacks(&state, &tx).await?;
+    Ok(Json(
+        features::receipt(&state.rpc, &detail, &query.address).await?,
+    ))
 }
 
 pub async fn address(
     State(state): State<AppState>,
     Path(address): Path<String>,
 ) -> Result<Json<AddressResponse>, AppError> {
+    if state.tatum.is_configured() {
+        return Ok(Json(state.tatum.address(&address).await?));
+    }
+
     let validation = state
         .rpc
         .call("validateaddress", json!([address.clone()]))
@@ -107,8 +112,14 @@ pub async fn address(
         is_valid: true,
         script_pub_key: optional_string(&validation, "scriptPubKey"),
         balance_sat,
+        received_sat: balance_sat,
+        sent_sat: 0,
+        pending_balance_sat: 0,
+        tx_count: 0,
         utxo_count: utxos.len(),
         utxos,
+        transactions: Vec::new(),
+        source: "Bitcoin RPC".into(),
     }))
 }
 
@@ -132,6 +143,11 @@ pub async fn tx_detail(rpc: &RpcClient, tx: &Value) -> Result<TransactionDetail,
 
     let input_total: Option<u64> = if resolved_inputs.iter().any(|input| input.coinbase.is_some()) {
         None
+    } else if resolved_inputs
+        .iter()
+        .any(|input| input.previous_output.is_none())
+    {
+        None
     } else {
         Some(
             resolved_inputs
@@ -142,21 +158,66 @@ pub async fn tx_detail(rpc: &RpcClient, tx: &Value) -> Result<TransactionDetail,
         )
     };
     let output_total: u64 = outputs.iter().map(|output| output.value_sat).sum();
+    let fee_sat = input_total
+        .map(|total| total as i64 - output_total as i64)
+        .or_else(|| tx.get("fee").and_then(Value::as_f64).map(btc_to_signed_sat));
 
-    Ok(TransactionDetail {
+    let mut detail = TransactionDetail {
         txid: get_string(tx, "txid")?,
         hash: get_string(tx, "hash").unwrap_or_else(|_| get_string(tx, "txid").unwrap_or_default()),
+        hex: optional_string(tx, "hex"),
         size: tx.get("size").and_then(Value::as_u64),
         vsize: tx.get("vsize").and_then(Value::as_u64),
         weight: tx.get("weight").and_then(Value::as_u64),
         version: tx.get("version").and_then(Value::as_i64),
-      locktime: tx.get("locktime").and_then(Value::as_u64),
+        locktime: tx.get("locktime").and_then(Value::as_u64),
         blockhash: optional_string(tx, "blockhash"),
         confirmations: tx.get("confirmations").and_then(Value::as_u64),
-        fee_sat: input_total.map(|total| total as i64 - output_total as i64),
+        fee_sat,
         inputs: resolved_inputs,
         outputs,
-    })
+        story: crate::model::Story {
+            kind: crate::model::TxKind::Unknown,
+            headline: String::new(),
+            sentences: Vec::new(),
+            change_output: None,
+            confidence: crate::model::Confidence::Low,
+            tags: Vec::new(),
+        },
+        fee_report: None,
+    };
+
+    detail.fee_report = features::fee_report(rpc, &detail).await.or_else(|| {
+        detail
+            .fee_sat
+            .zip(detail.vsize)
+            .and_then(|(fee, vsize)| (fee > 0 && vsize > 0).then_some(fee as f64 / vsize as f64))
+            .and_then(features::simple_fee_report)
+    });
+    detail.story = features::story(&detail);
+
+    Ok(detail)
+}
+
+async fn tx_detail_with_fallbacks(
+    state: &AppState,
+    tx: &Value,
+) -> Result<TransactionDetail, AppError> {
+    let mut detail = tx_detail(&state.rpc, tx).await?;
+    if detail.fee_sat.is_none() && state.tatum.is_configured() {
+        if let Ok(Some(fee_sat)) = state.tatum.transaction_fee_sat(&detail.txid).await {
+            detail.fee_sat = Some(fee_sat);
+            detail.fee_report = features::fee_report(&state.rpc, &detail).await.or_else(|| {
+                detail
+                    .vsize
+                    .filter(|vsize| *vsize > 0)
+                    .map(|vsize| fee_sat as f64 / vsize as f64)
+                    .and_then(features::simple_fee_report)
+            });
+            detail.story = features::story(&detail);
+        }
+    }
+    Ok(detail)
 }
 
 async fn tx_input_from_json(rpc: &RpcClient, vin: &Value) -> Result<TxInput, AppError> {
@@ -202,5 +263,34 @@ pub fn tx_summary(tx: &Value) -> Result<TxSummary, AppError> {
             .unwrap_or_default(),
         output_count: outputs.len(),
         output_value_sat: outputs.iter().map(|output| output.value_sat).sum(),
+    })
+}
+
+async fn load_verbose_tx(
+    rpc: &RpcClient,
+    txid: &str,
+    block_hash: Option<String>,
+) -> Result<Value, AppError> {
+    if !is_hex_hash(txid) {
+        return Err(AppError::BadRequest(
+            "transaction id must be 64 hex characters".into(),
+        ));
+    }
+
+    let params = match block_hash {
+        Some(block_hash) if is_hex_hash(&block_hash) => json!([txid, true, block_hash]),
+        Some(_) => {
+            return Err(AppError::BadRequest(
+                "block_hash must be 64 hex characters".into(),
+            ));
+        }
+        None => json!([txid, true]),
+    };
+
+    rpc.call("getrawtransaction", params).await.map_err(|_| {
+        AppError::NotFound(
+            "transaction was not found; provide block_hash when using a provider without txindex"
+                .into(),
+        )
     })
 }

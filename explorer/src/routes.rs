@@ -15,7 +15,16 @@ pub fn app(state: AppState) -> Router {
             "/api/block/{id}/txs",
             get(handlers::blocks::block_transactions),
         )
+        .route(
+            "/api/block/{id}/messages",
+            get(handlers::blocks::block_messages),
+        )
         .route("/api/tx/{txid}", get(handlers::transactions::transaction))
+        .route(
+            "/api/tx/{txid}/card.svg",
+            get(handlers::transactions::fee_card_svg),
+        )
+        .route("/api/receipt", get(handlers::transactions::receipt))
         .route(
             "/api/address/{address}",
             get(handlers::transactions::address),

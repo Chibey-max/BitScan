@@ -22,6 +22,13 @@ pub struct TxQuery {
     pub block_hash: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ReceiptQuery {
+    pub txid: String,
+    pub address: String,
+    pub block_hash: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub ok: bool,
@@ -103,6 +110,7 @@ pub struct TxSummary {
 pub struct TransactionDetail {
     pub txid: String,
     pub hash: String,
+    pub hex: Option<String>,
     pub size: Option<u64>,
     pub vsize: Option<u64>,
     pub weight: Option<u64>,
@@ -113,6 +121,8 @@ pub struct TransactionDetail {
     pub fee_sat: Option<i64>,
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
+    pub story: Story,
+    pub fee_report: Option<FeeReport>,
 }
 
 #[derive(Serialize)]
@@ -130,6 +140,81 @@ pub struct TxOutput {
     pub value_sat: u64,
     pub script_type: Option<String>,
     pub address: Option<String>,
+    pub op_return_text: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum TxKind {
+    Coinbase,
+    Payment,
+    SelfTransfer,
+    Consolidation,
+    BatchPayout,
+    CoinJoinLike,
+    DataCarrier,
+    Unknown,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    High,
+    Medium,
+    Low,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Story {
+    pub kind: TxKind,
+    pub headline: String,
+    pub sentences: Vec<String>,
+    pub change_output: Option<u64>,
+    pub confidence: Confidence,
+    pub tags: Vec<String>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct FeeReport {
+    pub grade: String,
+    pub fee_rate_sat_vb: f64,
+    pub percentile: Option<f64>,
+    pub verdict: String,
+    pub savings_vs_median_sat: Option<u64>,
+    pub savings_vs_min_sat: Option<u64>,
+    pub min_fee_rate_sat_vb: Option<f64>,
+    pub avg_fee_rate_sat_vb: Option<f64>,
+    pub max_fee_rate_sat_vb: Option<f64>,
+    pub percentiles_sat_vb: Vec<f64>,
+}
+
+#[derive(Serialize)]
+pub struct ReceiptResponse {
+    pub txid: String,
+    pub address: String,
+    pub amount_sat: u64,
+    pub output_indices: Vec<u64>,
+    pub status: String,
+    pub confirmations: Option<u64>,
+    pub block_hash: Option<String>,
+    pub block_time: Option<u64>,
+    pub generated_at: u64,
+}
+
+#[derive(Serialize)]
+pub struct BlockMessagesResponse {
+    pub block_hash: String,
+    pub height: u64,
+    pub coinbase_tag: Option<String>,
+    pub messages: Vec<ChainMessage>,
+}
+
+#[derive(Serialize)]
+pub struct ChainMessage {
+    pub txid: String,
+    pub output_index: Option<u64>,
+    pub kind: String,
+    pub text: String,
 }
 
 #[derive(Serialize)]
@@ -138,8 +223,14 @@ pub struct AddressResponse {
     pub is_valid: bool,
     pub script_pub_key: Option<String>,
     pub balance_sat: u64,
+    pub received_sat: u64,
+    pub sent_sat: u64,
+    pub pending_balance_sat: i64,
+    pub tx_count: usize,
     pub utxo_count: usize,
     pub utxos: Vec<AddressUtxo>,
+    pub transactions: Vec<AddressTransaction>,
+    pub source: String,
 }
 
 #[derive(Serialize)]
@@ -148,6 +239,17 @@ pub struct AddressUtxo {
     pub vout: u64,
     pub height: Option<u64>,
     pub value_sat: u64,
+}
+
+#[derive(Serialize)]
+pub struct AddressTransaction {
+    pub txid: String,
+    pub block_height: Option<u64>,
+    pub timestamp: Option<u64>,
+    pub fee_sat: Option<u64>,
+    pub received_sat: u64,
+    pub sent_sat: u64,
+    pub net_sat: i64,
 }
 
 #[derive(Serialize)]

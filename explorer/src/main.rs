@@ -5,17 +5,21 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
 mod error;
+mod features;
 mod handlers;
 mod model;
 mod routes;
 mod rpc;
+mod tatum;
 
 use config::Config;
 use rpc::RpcClient;
+use tatum::TatumClient;
 
 #[derive(Clone)]
 pub struct AppState {
     pub rpc: Arc<RpcClient>,
+    pub tatum: Arc<TatumClient>,
 }
 
 #[tokio::main]
@@ -37,6 +41,10 @@ async fn main() -> anyhow::Result<()> {
             config.rpc_user,
             config.rpc_password,
             config.rpc_api_key,
+        )),
+        tatum: Arc::new(TatumClient::new(
+            config.tatum_api_key,
+            config.tatum_api_base,
         )),
     };
 

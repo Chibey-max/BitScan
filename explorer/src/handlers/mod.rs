@@ -6,6 +6,7 @@ pub mod transactions;
 use serde_json::Value;
 
 use crate::error::AppError;
+use crate::features;
 use crate::model::{BlockSummary, TxOutput};
 
 pub(super) fn block_summary_from_json(block: &Value) -> Result<BlockSummary, AppError> {
@@ -45,6 +46,7 @@ pub(super) fn tx_output_from_json(output: &Value) -> TxOutput {
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned)
         }),
+        op_return_text: features::op_return_text(output),
     }
 }
 

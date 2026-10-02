@@ -46,6 +46,12 @@ pub async fn search(
         }
     }
 
+    if looks_like_bitcoin_address(q) {
+        return Ok(Json(SearchResponse::Address {
+            address: q.to_owned(),
+        }));
+    }
+
     let validation = state.rpc.call("validateaddress", json!([q])).await?;
     if validation
         .get("isvalid")
@@ -60,4 +66,10 @@ pub async fn search(
     Err(AppError::NotFound(
         "no matching block, transaction, or address".into(),
     ))
+}
+
+fn looks_like_bitcoin_address(value: &str) -> bool {
+    let len = value.len();
+    (value.starts_with("bc1") && (42..=90).contains(&len))
+        || ((value.starts_with('1') || value.starts_with('3')) && (26..=35).contains(&len))
 }

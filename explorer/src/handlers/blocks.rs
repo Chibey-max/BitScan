@@ -7,9 +7,10 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::error::AppError;
+use crate::features;
 use crate::model::{
-    BlockDetail, BlockTransactionsResponse, BlocksQuery, BlocksResponse, MempoolResponse,
-    PageQuery, TipResponse,
+    BlockDetail, BlockMessagesResponse, BlockTransactionsResponse, BlocksQuery, BlocksResponse,
+    MempoolResponse, PageQuery, TipResponse,
 };
 use crate::rpc::RpcClient;
 
@@ -135,6 +136,14 @@ pub async fn block_transactions(
         limit,
         transactions,
     }))
+}
+
+pub async fn block_messages(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<BlockMessagesResponse>, AppError> {
+    let block = get_block_by_id(&state.rpc, &id, 2).await?;
+    Ok(Json(features::messages_from_block(&block)?))
 }
 
 pub async fn block_hash(rpc: &RpcClient, height: u64) -> Result<String, AppError> {

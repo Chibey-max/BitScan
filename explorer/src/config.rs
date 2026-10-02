@@ -4,6 +4,8 @@ pub struct Config {
     pub rpc_user: String,
     pub rpc_password: String,
     pub rpc_api_key: Option<String>,
+    pub tatum_api_key: Option<String>,
+    pub tatum_api_base: String,
 }
 
 impl Config {
@@ -18,6 +20,11 @@ impl Config {
             rpc_api_key: std::env::var("BITCOIN_RPC_API_KEY")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
+            tatum_api_key: std::env::var("TATUM_API_KEY")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            tatum_api_base: std::env::var("TATUM_API_BASE")
+                .unwrap_or_else(|_| "https://api.tatum.io".into()),
         }
     }
 }
