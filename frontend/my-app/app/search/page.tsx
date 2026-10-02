@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SearchResult, getJson } from "@/app/lib/explorer";
+import { SearchResult, errorMessage, getJson } from "@/app/lib/explorer";
 import SiteHeader from "@/app/site-header";
 
 export const dynamic = "force-dynamic";
@@ -22,14 +22,22 @@ export default async function SearchPage({ searchParams }: PageProps) {
     result = await getJson<SearchResult>(
       `/api/search?q=${encodeURIComponent(query)}`,
     );
-  } catch {
+  } catch (error) {
     return (
-      <SearchError message="No block matched that query. BitRPC txid lookup needs the containing block hash, so open the block first when inspecting old transactions." />
+      <SearchError
+        message={errorMessage(
+          error,
+          "No block, transaction, or address matched that query. For older txids, open the containing block first so the request can include the block hash.",
+        )}
+      />
     );
   }
 
   if (result.type === "block") {
     redirect(`/block/${result.height ?? result.hash}`);
+  }
+  if (result.type === "address") {
+    redirect(`/address/${result.address}`);
   }
   redirect(`/tx/${result.txid}`);
 }
