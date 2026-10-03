@@ -6,23 +6,23 @@ export type Tip = {
 };
 
 export type Mempool = {
-  size: number;
-  bytes: number;
+  size?: number;
+  bytes?: number;
   min_fee_rate?: number;
 };
 
 export type BlockSummary = {
   height: number;
   hash: string;
-  timestamp: number;
-  tx_count: number;
+  timestamp?: number;
+  tx_count?: number;
   size?: number;
   weight?: number;
   total_fees_sat?: number;
 };
 
 export type BlocksResponse = {
-  blocks: BlockSummary[];
+  blocks?: BlockSummary[];
   next_from_height?: number;
 };
 
@@ -30,27 +30,27 @@ export type BlockDetail = BlockSummary & {
   previous_block_hash?: string;
   next_block_hash?: string;
   confirmations?: number;
-  merkleroot: string;
-  nonce: number;
-  bits: string;
-  difficulty: number;
-  txids: string[];
+  merkleroot?: string;
+  nonce?: number;
+  bits?: string;
+  difficulty?: number;
+  txids?: string[];
 };
 
 export type TxSummary = {
   txid: string;
   fee_sat?: number;
-  input_count: number;
-  output_count: number;
-  output_value_sat: number;
+  input_count?: number;
+  output_count?: number;
+  output_value_sat?: number;
 };
 
 export type BlockTransactions = {
   block: BlockSummary;
-  total: number;
-  offset: number;
-  limit: number;
-  transactions: TxSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  transactions?: TxSummary[];
 };
 
 export type TxOutput = {
@@ -97,23 +97,23 @@ export type Story = {
 };
 
 export type FeeReport = {
-  grade: string;
-  fee_rate_sat_vb: number;
+  grade?: string;
+  fee_rate_sat_vb?: number;
   percentile?: number | null;
-  verdict: string;
+  verdict?: string;
   savings_vs_median_sat?: number;
   savings_vs_min_sat?: number;
   min_fee_rate_sat_vb?: number;
   avg_fee_rate_sat_vb?: number;
   max_fee_rate_sat_vb?: number;
-  percentiles_sat_vb: number[];
+  percentiles_sat_vb?: number[];
 };
 
 export type ReceiptDetail = {
   txid: string;
   address: string;
-  amount_sat: number;
-  output_indices: number[];
+  amount_sat?: number;
+  output_indices?: number[];
   status: string;
   confirmations?: number;
   block_hash?: string;
@@ -138,29 +138,29 @@ export type AddressTransaction = {
   block_height?: number;
   timestamp?: number;
   fee_sat?: number;
-  received_sat: number;
-  sent_sat: number;
-  net_sat: number;
+  received_sat?: number;
+  sent_sat?: number;
+  net_sat?: number;
 };
 
 export type AddressDetail = {
   address: string;
-  is_valid: boolean;
+  is_valid?: boolean;
   script_pub_key?: string;
-  balance_sat: number;
-  received_sat: number;
-  sent_sat: number;
-  pending_balance_sat: number;
-  tx_count: number;
-  utxo_count: number;
+  balance_sat?: number;
+  received_sat?: number;
+  sent_sat?: number;
+  pending_balance_sat?: number;
+  tx_count?: number;
+  utxo_count?: number;
   utxos: Array<{
     txid: string;
     vout: number;
     height?: number;
     value_sat: number;
   }>;
-  transactions: AddressTransaction[];
-  source: string;
+  transactions?: AddressTransaction[];
+  source?: string;
 };
 
 export type SearchResult =
@@ -216,7 +216,8 @@ export function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export function compactHash(value: string, lead = 10, tail = 8) {
+export function compactHash(value?: string, lead = 10, tail = 8) {
+  if (!value) return "pending";
   if (value.length <= lead + tail + 3) return value;
   return `${value.slice(0, lead)}...${value.slice(-tail)}`;
 }
@@ -252,7 +253,8 @@ export function formatBtcFromSats(value?: number) {
   return `${(value / 100_000_000).toFixed(8)} BTC`;
 }
 
-export function formatTime(timestamp: number) {
+export function formatTime(timestamp?: number) {
+  if (timestamp === undefined || timestamp === null) return "pending";
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
@@ -266,7 +268,8 @@ function plural(value: number, unit: string) {
   return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }
 
-export function formatBlockAge(timestamp: number) {
+export function formatBlockAge(timestamp?: number) {
+  if (timestamp === undefined || timestamp === null) return "pending";
   const then = new Date(timestamp * 1000);
   const now = new Date();
   const seconds = Math.max(0, Math.floor((now.getTime() - then.getTime()) / 1000));
@@ -295,7 +298,8 @@ export function formatBlockAge(timestamp: number) {
   return `${plural(Math.max(1, months), "month")} ago`;
 }
 
-export function formatRelativeBlockTime(timestamp: number) {
+export function formatRelativeBlockTime(timestamp?: number) {
+  if (timestamp === undefined || timestamp === null) return "pending";
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp * 1000) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);

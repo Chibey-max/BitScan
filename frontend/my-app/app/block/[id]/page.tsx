@@ -60,9 +60,12 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
       "Transaction summaries are not available from the provider for this block.",
     );
   }
-  const fallbackTxids = block.txids.slice(offset, offset + TX_PAGE_SIZE);
-  const visibleTxCount = txs?.transactions.length ?? fallbackTxids.length;
-  const totalTxCount = txs?.total ?? block.tx_count;
+  const blockHash = block.hash ?? id;
+  const blockHeight = block.height ?? 0;
+  const txSummaries = txs?.transactions ?? [];
+  const fallbackTxids = (block.txids ?? []).slice(offset, offset + TX_PAGE_SIZE);
+  const visibleTxCount = txSummaries.length || fallbackTxids.length;
+  const totalTxCount = txs?.total ?? block.tx_count ?? fallbackTxids.length;
   const previousOffset = Math.max(0, offset - TX_PAGE_SIZE);
   const nextOffset = offset + visibleTxCount;
   const hasPrevious = offset > 0;
@@ -84,19 +87,19 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
           <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">
-                Block {block.height.toLocaleString("en-US")}
+                Block {blockHeight.toLocaleString("en-US")}
               </h1>
               <div className="hash-line">
-                <Link href={`/block/${block.hash}`} className="entity-link mono">
-                  {block.hash}
+                <Link href={`/block/${blockHash}`} className="entity-link mono">
+                  {blockHash}
                 </Link>
-                <CopyButton value={block.hash} label="Copy hash" compact />
+                <CopyButton value={blockHash} label="Copy hash" compact />
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {block.previous_block_hash ? (
                 <Link
-                  href={`/block/${block.height - 1}`}
+                  href={`/block/${Math.max(0, blockHeight - 1)}`}
                   className="outline-button"
                 >
                   <MaterialIcon name="arrow_back" />
@@ -105,7 +108,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               ) : null}
               {block.next_block_hash ? (
                 <Link
-                  href={`/block/${block.height + 1}`}
+                  href={`/block/${blockHeight + 1}`}
                   className="outline-button"
                 >
                   Next
@@ -122,7 +125,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               <Stat
                 icon="receipt_long"
                 label="Transactions"
-                value={block.tx_count.toLocaleString("en-US")}
+                value={(block.tx_count ?? 0).toLocaleString("en-US")}
               />
               <Stat
                 icon="database"
@@ -174,12 +177,12 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                   value={formatBlockAge(block.timestamp)}
                   sub={formatTime(block.timestamp)}
                 />
-                <Detail label="Merkle root" value={block.merkleroot} mono copy />
-                <Detail label="Bits" value={block.bits} mono />
-                <Detail label="Nonce" value={block.nonce.toString()} mono />
+                <Detail label="Merkle root" value={block.merkleroot ?? "pending"} mono copy={Boolean(block.merkleroot)} />
+                <Detail label="Bits" value={block.bits ?? "pending"} mono />
+                <Detail label="Nonce" value={formatNumber(block.nonce)} mono />
                 <Detail
                   label="Difficulty"
-                  value={block.difficulty.toLocaleString("en-US")}
+                  value={formatNumber(block.difficulty)}
                 />
                 <Detail label="Weight" value={formatNumber(block.weight)} />
               </dl>
@@ -202,11 +205,11 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               </div>
             ) : null}
             <div className="tx-list">
-              {txs
-                ? txs.transactions.map((tx) => (
+              {txSummaries.length > 0
+                ? txSummaries.map((tx) => (
                     <article key={tx.txid} className="tx-row tx-card-row">
                       <Link
-                        href={`/tx/${tx.txid}?block_hash=${block.hash}`}
+                        href={`/tx/${tx.txid}?block_hash=${blockHash}`}
                         className="tx-main"
                       >
                         <div className="min-w-0">
@@ -222,7 +225,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                             Inputs
                           </p>
                           <p className="mt-1 font-mono text-lg font-semibold">
-                            {tx.input_count}
+                            {formatNumber(tx.input_count)}
                           </p>
                         </div>
                         <div>
@@ -230,7 +233,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                             Outputs
                           </p>
                           <p className="mt-1 font-mono text-lg font-semibold">
-                            {tx.output_count}
+                            {formatNumber(tx.output_count)}
                           </p>
                         </div>
                         <div className="tx-value">
@@ -248,7 +251,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 : fallbackTxids.map((txid) => (
                     <article key={txid} className="tx-row tx-card-row">
                       <Link
-                        href={`/tx/${txid}?block_hash=${block.hash}`}
+                        href={`/tx/${txid}?block_hash=${blockHash}`}
                         className="tx-main tx-main-fallback"
                       >
                         <div className="min-w-0">

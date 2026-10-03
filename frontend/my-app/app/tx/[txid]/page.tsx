@@ -152,10 +152,10 @@ export default async function TransactionPage({
               <section className="panel block-fullness-panel">
                 <div>
                   <p className="section-kicker">Fee report card</p>
-                  <h2>Grade {tx.fee_report.grade}</h2>
+                  <h2>Grade {tx.fee_report.grade ?? "pending"}</h2>
                   <p>
-                    {tx.fee_report.verdict} Fee rate:{" "}
-                    {tx.fee_report.fee_rate_sat_vb} sat/vB.
+                    {tx.fee_report.verdict ?? "Fee comparison is partially available."} Fee rate:{" "}
+                    {tx.fee_report.fee_rate_sat_vb ?? "pending"} sat/vB.
                   </p>
                 </div>
                 <FeeStrip report={tx.fee_report} />
@@ -285,7 +285,8 @@ export default async function TransactionPage({
 
 function FeeStrip({ report }: { report: NonNullable<TransactionDetail["fee_report"]> }) {
   const percentile = report.percentile ?? undefined;
-  const marker = percentile ?? Math.min(100, report.fee_rate_sat_vb * 4);
+  const feeRate = report.fee_rate_sat_vb ?? 0;
+  const marker = percentile ?? Math.min(100, feeRate * 4);
   return (
     <div className="block-fill block-fill-large">
       <span className="block-fill-track">

@@ -36,6 +36,8 @@ export default async function AddressPage({ params }: PageProps) {
       />
     );
   }
+  const transactions = detail.transactions ?? [];
+  const source = detail.source ?? "provider";
 
   return (
     <main className="app-shell">
@@ -52,7 +54,7 @@ export default async function AddressPage({ params }: PageProps) {
                 <CopyButton value={detail.address} label="Copy address" compact />
               </div>
               <p className="mt-3 text-sm text-[var(--muted)]">
-                Indexed address data from {detail.source}. Recent activity is normalized by the Rust API before it reaches the UI.
+                Indexed address data from {source}. Recent activity is normalized by the Rust API before it reaches the UI.
               </p>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-sm font-semibold text-[var(--muted)]">
@@ -81,8 +83,8 @@ export default async function AddressPage({ params }: PageProps) {
           </div>
 
           <div className="divide-y divide-[var(--border)]">
-            {detail.transactions.length > 0 ? (
-              detail.transactions.map((tx) => (
+            {transactions.length > 0 ? (
+              transactions.map((tx) => (
                 <article
                   key={tx.txid}
                   className="grid gap-4 px-6 py-5 transition hover:bg-[var(--surface-hover)] lg:grid-cols-[minmax(0,1fr)_160px_160px_120px]"

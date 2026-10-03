@@ -72,7 +72,7 @@ export default async function Page({ searchParams }: PageProps) {
     state = "live";
     tip = nextTip;
     mempool = nextMempool;
-    blocks = blockPage.blocks;
+    blocks = blockPage.blocks?.length ? blockPage.blocks : demoBlocks;
     nextFromHeight = blockPage.next_from_height;
   } catch {
     state = "demo";

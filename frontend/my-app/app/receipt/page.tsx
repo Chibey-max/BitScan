@@ -61,6 +61,7 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
       />
     );
   }
+  const outputIndices = receipt.output_indices ?? [];
 
   return (
     <main className="app-shell">
@@ -87,7 +88,7 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
             <div className="grid gap-4 md:grid-cols-3">
               <ReceiptMetric label="Amount" value={formatBtcFromSats(receipt.amount_sat)} />
               <ReceiptMetric label="Confirmations" value={formatNumber(receipt.confirmations)} />
-              <ReceiptMetric label="Outputs" value={receipt.output_indices.join(", ")} />
+              <ReceiptMetric label="Outputs" value={outputIndices.length ? outputIndices.join(", ") : "pending"} />
             </div>
             <div className="mt-6 space-y-5">
               <ReceiptLine

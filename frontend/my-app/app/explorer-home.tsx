@@ -30,12 +30,17 @@ export default function ExplorerHome({
   fromHeight,
   nextFromHeight,
 }: ExplorerHomeProps) {
-  const subsidy = 50 / 2 ** Math.floor(tip.height / 210_000);
+  const tipHeight = tip.height ?? 0;
+  const tipHash = tip.hash ?? "";
+  const safeBlocks = blocks ?? [];
+  const mempoolSize = mempool.size ?? 0;
+  const mempoolBytes = mempool.bytes ?? 0;
+  const subsidy = 50 / 2 ** Math.floor(tipHeight / 210_000);
   const minRelayFee = mempool.min_fee_rate ? mempool.min_fee_rate * 100_000 : undefined;
-  const currentStart = blocks[0]?.height ?? fromHeight ?? tip.height;
+  const currentStart = safeBlocks[0]?.height ?? fromHeight ?? tipHeight;
   const newerFromHeight =
-    fromHeight === undefined ? undefined : Math.min(tip.height, fromHeight + blocks.length);
-  const latestBlock = blocks[0];
+    fromHeight === undefined ? undefined : Math.min(tipHeight, fromHeight + safeBlocks.length);
+  const latestBlock = safeBlocks[0];
   const latestFullness = blockFullnessPercent(latestBlock?.weight);
 
   return (
@@ -58,8 +63,8 @@ export default function ExplorerHome({
             <MaterialIcon name="crowdsource" />
             <p>Data source: bitrpc.thebuidl.xyz.</p>
             <div className="search-examples" aria-label="Search examples">
-              <Link href={`/block/${tip.height}`}>#{tip.height.toLocaleString("en-US")}</Link>
-              <Link href={`/block/${tip.hash}`}>{compactHash(tip.hash, 8, 6)}</Link>
+              <Link href={`/block/${tipHeight}`}>#{tipHeight.toLocaleString("en-US")}</Link>
+              <Link href={`/block/${tipHash}`}>{compactHash(tipHash, 8, 6)}</Link>
               <span>{state === "live" ? "RPC connected" : "Provider fallback"}</span>
             </div>
           </div>
@@ -70,15 +75,15 @@ export default function ExplorerHome({
             <div className="tip-grid">
               <div>
                 <p className="section-kicker">Current chain tip</p>
-                <Link href={`/block/${tip.height}`} className="tip-height">
-                  {tip.height.toLocaleString("en-US")}
+                <Link href={`/block/${tipHeight}`} className="tip-height">
+                  {tipHeight.toLocaleString("en-US")}
                   <MaterialIcon name="arrow_forward" />
                 </Link>
                 <div className="tip-hash hash-line">
-                  <Link href={`/block/${tip.hash}`} className="entity-link mono">
-                    {tip.hash}
+                  <Link href={`/block/${tipHash}`} className="entity-link mono">
+                    {tipHash || "pending"}
                   </Link>
-                  <CopyButton value={tip.hash} label="Copy block hash" compact />
+                  {tipHash ? <CopyButton value={tipHash} label="Copy block hash" compact /> : null}
                 </div>
               </div>
               <div className="tip-bitcoin-mark" aria-hidden="true">
@@ -105,7 +110,7 @@ export default function ExplorerHome({
                   <p className="section-kicker">Latest block utilization</p>
                   <strong>{latestFullness === undefined ? "pending" : `${latestFullness.toFixed(1)}% full`}</strong>
                   <span>
-                    {latestBlock.tx_count.toLocaleString("en-US")} txs .{" "}
+                    {(latestBlock.tx_count ?? 0).toLocaleString("en-US")} txs .{" "}
                     {formatBytes(latestBlock.weight)} WU . mined {formatRelativeBlockTime(latestBlock.timestamp)}
                   </span>
                 </div>
@@ -118,9 +123,9 @@ export default function ExplorerHome({
             <MetricCard
               icon="database"
               label="Mempool"
-              value={mempool.size.toLocaleString("en-US")}
+              value={mempoolSize.toLocaleString("en-US")}
               suffix="txs"
-              detail={`${(mempool.bytes / 1_000_000).toFixed(2)} MB waiting`}
+              detail={`${(mempoolBytes / 1_000_000).toFixed(2)} MB waiting`}
               tone="green"
             />
             <MetricCard
@@ -135,7 +140,7 @@ export default function ExplorerHome({
               label="Block subsidy"
               value={subsidy.toFixed(3)}
               suffix="BTC"
-              detail={`Era ${Math.floor(tip.height / 210_000) + 1} reward`}
+              detail={`Era ${Math.floor(tipHeight / 210_000) + 1} reward`}
             />
           </div>
         </section>
@@ -150,7 +155,7 @@ export default function ExplorerHome({
                 </span>
               </div>
               <div className="pagination-actions">
-                {newerFromHeight !== undefined && fromHeight !== undefined && newerFromHeight < tip.height ? (
+                {newerFromHeight !== undefined && fromHeight !== undefined && newerFromHeight < tipHeight ? (
                   <Link href={`/?from_height=${newerFromHeight}`} className="icon-button" aria-label="Newer blocks" title="Newer blocks">
                     <MaterialIcon name="arrow_back" />
                   </Link>
@@ -166,7 +171,7 @@ export default function ExplorerHome({
             </div>
 
             <div className="block-timeline">
-              {blocks.map((block, index) => (
+              {safeBlocks.map((block, index) => (
                 <BlockRow
                   key={block.hash}
                   block={block}
@@ -176,7 +181,7 @@ export default function ExplorerHome({
             </div>
 
             <div className="panel-footer">
-              <span>{blocks.length} blocks on this page</span>
+              <span>{safeBlocks.length} blocks on this page</span>
               <span className="mono">height cursor {nextFromHeight ?? "end"}</span>
             </div>
           </section>
@@ -214,7 +219,7 @@ export default function ExplorerHome({
                 </Link>
                 <div className="last-block-stats">
                   <MetricMini label="Mined" value={formatRelativeBlockTime(latestBlock.timestamp)} />
-                  <MetricMini label="Txs" value={latestBlock.tx_count.toLocaleString("en-US")} />
+                  <MetricMini label="Txs" value={(latestBlock.tx_count ?? 0).toLocaleString("en-US")} />
                 </div>
               </section>
             ) : null}
@@ -267,19 +272,21 @@ function MetricMini({ label, value }: { label: string; value: string }) {
 
 function BlockRow({ block, newest }: { block: BlockSummary; newest: boolean }) {
   const fullness = blockFullnessPercent(block.weight);
+  const height = block.height ?? 0;
+  const hash = block.hash ?? "";
 
   return (
-    <Link href={`/block/${block.height}`} className="block-row block-stream-row">
+    <Link href={`/block/${height}`} className="block-row block-stream-row">
       <span className="block-node" aria-hidden="true">
         <MaterialIcon name="deployed_code" />
       </span>
       <span className="block-height" data-label="Height">
-        {block.height.toLocaleString("en-US")}
+        {height.toLocaleString("en-US")}
         {newest ? <small>NEW</small> : null}
       </span>
-      <span className="mono" data-label="Hash">{compactHash(block.hash, 12, 8)}</span>
+      <span className="mono" data-label="Hash">{compactHash(hash, 12, 8)}</span>
       <span data-label="Mined">{formatRelativeBlockTime(block.timestamp)}</span>
-      <span className="number" data-label="Txs">{block.tx_count.toLocaleString("en-US")}</span>
+      <span className="number" data-label="Txs">{(block.tx_count ?? 0).toLocaleString("en-US")}</span>
       <span className="block-fill-cell" data-label="Full">
         <BlockFillBar percent={fullness} compact />
       </span>
