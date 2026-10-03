@@ -81,9 +81,9 @@ export type TransactionDetail = {
   blockhash?: string;
   confirmations?: number;
   fee_sat?: number;
-  inputs: TxInput[];
-  outputs: TxOutput[];
-  story: Story;
+  inputs?: TxInput[];
+  outputs?: TxOutput[];
+  story?: Story;
   fee_report?: FeeReport;
 };
 

@@ -48,7 +48,26 @@ export default async function TransactionPage({
       />
     );
   }
-  const totalOut = tx.outputs.reduce((sum, output) => sum + output.value_sat, 0);
+  const inputs = tx.inputs ?? [];
+  const outputs = tx.outputs ?? [];
+  const story = {
+    kind: tx.story?.kind ?? "unknown",
+    headline: tx.story?.headline ?? "Transaction details",
+    sentences:
+      tx.story?.sentences?.length
+        ? tx.story.sentences
+        : [
+            "BitScan could not classify this transaction, but the decoded inputs and outputs are shown below.",
+          ],
+    change_output: tx.story?.change_output,
+    confidence: tx.story?.confidence ?? "provider fallback",
+    tags: tx.story?.tags ?? [],
+  };
+  const receiptOutput = outputs.find((output) => output.address);
+  const totalOut = outputs.reduce(
+    (sum, output) => sum + (output.value_sat ?? 0),
+    0,
+  );
 
   return (
     <main className="app-shell">
@@ -110,17 +129,17 @@ export default async function TransactionPage({
                 <MaterialIcon name="auto_stories" className="mt-1 text-[var(--accent)]" />
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-semibold">{tx.story.headline}</h2>
-                    <span className="flow-chip">{tx.story.confidence}</span>
+                    <h2 className="text-xl font-semibold">{story.headline}</h2>
+                    <span className="flow-chip">{story.confidence}</span>
                   </div>
                   <div className="mt-3 space-y-2 text-sm leading-6 text-[var(--muted)]">
-                    {tx.story.sentences.map((sentence) => (
+                    {story.sentences.map((sentence) => (
                       <p key={sentence}>{sentence}</p>
                     ))}
                   </div>
-                  {tx.story.tags.length > 0 ? (
+                  {story.tags.length > 0 ? (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {tx.story.tags.map((tag) => (
+                      {story.tags.map((tag) => (
                         <span key={tag} className="query-chip">{tag}</span>
                       ))}
                     </div>
@@ -173,9 +192,9 @@ export default async function TransactionPage({
                     Open a clean proof-of-payment receipt for any output address
                     in this transaction.
                   </p>
-                  {tx.outputs.find((output) => output.address) ? (
+                  {receiptOutput ? (
                     <Link
-                      href={`/receipt?txid=${tx.txid}&address=${tx.outputs.find((output) => output.address)?.address ?? ""}${tx.blockhash ? `&block_hash=${tx.blockhash}` : ""}`}
+                      href={`/receipt?txid=${tx.txid}&address=${receiptOutput.address ?? ""}${tx.blockhash ? `&block_hash=${tx.blockhash}` : ""}`}
                       className="outline-button mt-4"
                     >
                       <MaterialIcon name="open_in_new" />
@@ -192,10 +211,10 @@ export default async function TransactionPage({
               <div>
                 <h2 className="text-xl font-semibold">Transaction flow</h2>
                 <p className="text-sm text-[var(--muted)]">
-                  {tx.inputs.length.toLocaleString("en-US")} input
-                  {tx.inputs.length === 1 ? "" : "s"} into{" "}
-                  {tx.outputs.length.toLocaleString("en-US")} output
-                  {tx.outputs.length === 1 ? "" : "s"}
+                  {inputs.length.toLocaleString("en-US")} input
+                  {inputs.length === 1 ? "" : "s"} into{" "}
+                  {outputs.length.toLocaleString("en-US")} output
+                  {outputs.length === 1 ? "" : "s"}
                 </p>
               </div>
               <span className="flow-chip">{tx.confirmations ? "confirmed" : "mempool"}</span>
@@ -203,7 +222,7 @@ export default async function TransactionPage({
             <div className="transaction-flow">
               <div className="flow-column">
                 <h3>Inputs</h3>
-                {tx.inputs.map((input, index) => (
+                {inputs.map((input, index) => (
                   <article key={`${input.txid ?? "coinbase"}:${index}`} className="flow-item">
                     <p className="flow-label">Input {index}</p>
                     {input.coinbase ? (
@@ -235,7 +254,7 @@ export default async function TransactionPage({
               </div>
               <div className="flow-column">
                 <h3>Outputs</h3>
-                {tx.outputs.map((output) => (
+                {outputs.map((output) => (
                   <article key={output.n} className="flow-item output-item">
                     <div className="flow-output-head">
                       <span>Vout {output.n}</span>
