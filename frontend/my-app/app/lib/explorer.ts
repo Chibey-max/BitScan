@@ -87,6 +87,11 @@ export type TransactionDetail = {
   fee_report?: FeeReport;
 };
 
+type TxStatus = {
+  confirmed?: boolean;
+  block_hash?: string;
+};
+
 export type Story = {
   kind: string;
   headline: string;
@@ -221,6 +226,55 @@ export async function getJson<T>(
   }
 
   return response.json();
+}
+
+export async function resolveTxBlockHash(txid: string) {
+  if (!/^[a-fA-F0-9]{64}$/.test(txid)) return undefined;
+
+  const statusUrls = [
+    `https://mempool.space/api/tx/${encodeURIComponent(txid)}/status`,
+    `https://blockstream.info/api/tx/${encodeURIComponent(txid)}/status`,
+  ];
+
+  for (const url of statusUrls) {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: "application/json" },
+        next: { revalidate: 3_600 },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) continue;
+      const status = (await response.json()) as TxStatus;
+      if (status.confirmed && status.block_hash) return status.block_hash;
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+export async function getTransactionDetail(
+  txid: string,
+  blockHash?: string,
+): Promise<TransactionDetail> {
+  const encodedTxid = encodeURIComponent(txid);
+  const suffix = blockHash
+    ? `?block_hash=${encodeURIComponent(blockHash)}`
+    : "";
+
+  try {
+    return await getJson<TransactionDetail>(`/api/tx/${encodedTxid}${suffix}`, {
+      revalidate: blockHash ? 300 : 20,
+    });
+  } catch (error) {
+    const resolvedBlockHash = await resolveTxBlockHash(txid);
+    if (!resolvedBlockHash || resolvedBlockHash === blockHash) throw error;
+    return getJson<TransactionDetail>(
+      `/api/tx/${encodedTxid}?block_hash=${encodeURIComponent(resolvedBlockHash)}`,
+      { revalidate: 300 },
+    );
+  }
 }
 
 export function errorMessage(error: unknown, fallback: string) {

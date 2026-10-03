@@ -8,7 +8,7 @@ import {
   formatBtcFromSats,
   formatNumber,
   formatTime,
-  getJson,
+  getTransactionDetail,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
@@ -43,13 +43,9 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
     );
   }
 
-  const suffix = `${block_hash ? `?block_hash=${encodeURIComponent(block_hash)}` : ""}`;
   let receipt: ReceiptDetail;
   try {
-    const tx = await getJson<TransactionDetail>(
-      `/api/tx/${encodeURIComponent(txid)}${suffix}`,
-      { revalidate: 300 },
-    );
+    const tx = await getTransactionDetail(txid, block_hash);
     receipt = receiptFromTransaction(tx, address, block_hash);
   } catch (error) {
     return (

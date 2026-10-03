@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import CopyButton from "@/app/copy-button";
 import EntityLink from "@/app/entity-link";
 import ErrorState from "@/app/error-state";
@@ -11,7 +12,8 @@ import {
   formatBtcFromSats,
   formatBytes,
   formatNumber,
-  getJson,
+  getTransactionDetail,
+  resolveTxBlockHash,
 } from "@/app/lib/explorer";
 
 export const revalidate = 300;
@@ -27,15 +29,16 @@ export default async function TransactionPage({
 }: PageProps) {
   const { txid } = await params;
   const { block_hash } = await searchParams;
-  const suffix = block_hash
-    ? `?block_hash=${encodeURIComponent(block_hash)}`
-    : "";
+  if (!block_hash) {
+    const resolvedBlockHash = await resolveTxBlockHash(txid);
+    if (resolvedBlockHash) {
+      redirect(`/tx/${txid}?block_hash=${resolvedBlockHash}`);
+    }
+  }
+
   let tx: TransactionDetail;
   try {
-    tx = await getJson<TransactionDetail>(
-      `/api/tx/${encodeURIComponent(txid)}${suffix}`,
-      { revalidate: block_hash ? 300 : 20 },
-    );
+    tx = await getTransactionDetail(txid, block_hash);
   } catch (error) {
     return (
       <ErrorState

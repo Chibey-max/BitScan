@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SearchResult, errorMessage, getJson } from "@/app/lib/explorer";
+import {
+  SearchResult,
+  errorMessage,
+  getJson,
+  resolveTxBlockHash,
+} from "@/app/lib/explorer";
 import SiteHeader from "@/app/site-header";
 
 export const revalidate = 30;
@@ -23,6 +28,10 @@ export default async function SearchPage({ searchParams }: PageProps) {
       `/api/search?q=${encodeURIComponent(query)}`,
     );
   } catch (error) {
+    const blockHash = await resolveTxBlockHash(query);
+    if (blockHash) {
+      redirect(`/tx/${query}?block_hash=${blockHash}`);
+    }
     return (
       <SearchError
         message={errorMessage(
