@@ -7,7 +7,7 @@ import {
   getJson,
 } from "@/app/lib/explorer";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 10;
 
 const demoTip: Tip = {
   height: 969_024,

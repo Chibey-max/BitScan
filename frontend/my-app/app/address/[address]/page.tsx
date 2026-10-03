@@ -12,7 +12,7 @@ import {
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 120;
 
 type PageProps = {
   params: Promise<{ address: string }>;

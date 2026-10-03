@@ -17,7 +17,7 @@ import {
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 type PageProps = {
   params: Promise<{ id: string }>;

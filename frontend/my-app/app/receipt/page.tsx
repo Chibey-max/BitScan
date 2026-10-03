@@ -13,7 +13,7 @@ import {
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 type PageProps = {
   searchParams: Promise<{ txid?: string; address?: string; block_hash?: string }>;

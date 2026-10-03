@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { SearchResult, errorMessage, getJson } from "@/app/lib/explorer";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 type PageProps = {
   searchParams: Promise<{ q?: string }>;
