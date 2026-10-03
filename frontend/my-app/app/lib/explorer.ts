@@ -183,10 +183,30 @@ export class ApiError extends Error {
   }
 }
 
-export async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+type GetJsonOptions = {
+  revalidate?: number;
+  timeoutMs?: number;
+};
+
+export async function getJson<T>(
+  path: string,
+  { revalidate = 30, timeoutMs = 12_000 }: GetJsonOptions = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const init: RequestInit & { next?: { revalidate: number } } = {
     headers: { accept: "application/json" },
-    cache: "no-store",
+    signal: controller.signal,
+  };
+
+  if (revalidate > 0) {
+    init.next = { revalidate };
+  } else {
+    init.cache = "no-store";
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, init).finally(() => {
+    clearTimeout(timeout);
   });
 
   if (!response.ok) {

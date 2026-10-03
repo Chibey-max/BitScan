@@ -35,7 +35,9 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
   const offset = offsetParam && /^\d+$/.test(offsetParam) ? Number(offsetParam) : 0;
   let block: BlockDetail;
   try {
-    block = await getJson<BlockDetail>(`/api/block/${encodeURIComponent(id)}`);
+    block = await getJson<BlockDetail>(`/api/block/${encodeURIComponent(id)}`, {
+      revalidate: 300,
+    });
   } catch (error) {
     return (
       <ErrorState
@@ -53,6 +55,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
   try {
     txs = await getJson<BlockTransactions>(
       `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
+      { revalidate: 300 },
     );
   } catch (error) {
     txsError = errorMessage(

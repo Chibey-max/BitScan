@@ -3,6 +3,7 @@ import EntityLink from "@/app/entity-link";
 import ErrorState from "@/app/error-state";
 import {
   ReceiptDetail,
+  TransactionDetail,
   errorMessage,
   formatBtcFromSats,
   formatNumber,
@@ -42,12 +43,14 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
     );
   }
 
-  const suffix = `${block_hash ? `&block_hash=${encodeURIComponent(block_hash)}` : ""}`;
+  const suffix = `${block_hash ? `?block_hash=${encodeURIComponent(block_hash)}` : ""}`;
   let receipt: ReceiptDetail;
   try {
-    receipt = await getJson<ReceiptDetail>(
-      `/api/receipt?txid=${encodeURIComponent(txid)}&address=${encodeURIComponent(address)}${suffix}`,
+    const tx = await getJson<TransactionDetail>(
+      `/api/tx/${encodeURIComponent(txid)}${suffix}`,
+      { revalidate: 300 },
     );
+    receipt = receiptFromTransaction(tx, address, block_hash);
   } catch (error) {
     return (
       <ErrorState
@@ -131,6 +134,34 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
       </section>
     </main>
   );
+}
+
+function receiptFromTransaction(
+  tx: TransactionDetail,
+  address: string,
+  requestedBlockHash?: string,
+): ReceiptDetail {
+  const matchingOutputs = (tx.outputs ?? []).filter(
+    (output) => output.address === address,
+  );
+
+  if (!matchingOutputs.length) {
+    throw new Error("This transaction did not pay that address.");
+  }
+
+  return {
+    txid: tx.txid,
+    address,
+    amount_sat: matchingOutputs.reduce(
+      (sum, output) => sum + (output.value_sat ?? 0),
+      0,
+    ),
+    output_indices: matchingOutputs.map((output) => output.n),
+    status: (tx.confirmations ?? 0) > 0 ? "confirmed" : "waiting_for_confirmation",
+    confirmations: tx.confirmations,
+    block_hash: tx.blockhash ?? requestedBlockHash,
+    generated_at: Math.floor(Date.now() / 1000),
+  };
 }
 
 function ReceiptMetric({ label, value }: { label: string; value: string }) {

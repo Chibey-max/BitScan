@@ -34,6 +34,7 @@ export default async function TransactionPage({
   try {
     tx = await getJson<TransactionDetail>(
       `/api/tx/${encodeURIComponent(txid)}${suffix}`,
+      { revalidate: block_hash ? 300 : 20 },
     );
   } catch (error) {
     return (

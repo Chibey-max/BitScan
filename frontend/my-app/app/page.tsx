@@ -63,10 +63,11 @@ export default async function Page({ searchParams }: PageProps) {
 
   try {
     const [nextTip, nextMempool, blockPage] = await Promise.all([
-      getJson<Tip>("/api/tip"),
-      getJson<Mempool>("/api/mempool"),
+      getJson<Tip>("/api/tip", { revalidate: 10 }),
+      getJson<Mempool>("/api/mempool", { revalidate: 10 }),
       getJson<BlocksResponse>(
         `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
+        { revalidate: 20 },
       ),
     ]);
     state = "live";

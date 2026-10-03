@@ -24,6 +24,7 @@ export default async function AddressPage({ params }: PageProps) {
   try {
     detail = await getJson<AddressDetail>(
       `/api/address/${encodeURIComponent(address)}`,
+      { revalidate: 120 },
     );
   } catch (error) {
     return (
