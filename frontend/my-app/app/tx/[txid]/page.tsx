@@ -81,70 +81,65 @@ export default async function TransactionPage({
         </header>
 
         <div className="tx-detail-grid reveal-panel reveal-delay-1">
-          <section className="tx-primary-column">
-            <div className="grid gap-4 md:grid-cols-4">
-              <Stat
-                icon="deployed_code"
-                label="Confirmations"
-                value={formatNumber(tx.confirmations)}
-              />
-              <Stat
-                icon="currency_bitcoin"
-                label="Output total"
-                value={formatBtcFromSats(totalOut)}
-              />
-              <Stat
-                icon="database"
-                label="Virtual size"
-                value={formatBytes(tx.vsize)}
-                sub="vbytes"
-              />
-              <Stat
-                icon="lock"
-                label="Fee"
-                value={
-                  tx.fee_sat === undefined
-                    ? "needs prevouts"
-                    : `${formatNumber(tx.fee_sat)} sats`
-                }
-              />
-            </div>
+          <div className="tx-stats-grid">
+            <Stat
+              icon="deployed_code"
+              label="Confirmations"
+              value={formatNumber(tx.confirmations)}
+            />
+            <Stat
+              icon="currency_bitcoin"
+              label="Output total"
+              value={formatBtcFromSats(totalOut)}
+            />
+            <Stat
+              icon="database"
+              label="Virtual size"
+              value={formatBytes(tx.vsize)}
+              sub="vbytes"
+            />
+            <Stat
+              icon="lock"
+              label="Fee"
+              value={
+                tx.fee_sat === undefined
+                  ? "pending sats"
+                  : `${formatNumber(tx.fee_sat)} sats`
+              }
+            />
+          </div>
 
-            {tx.fee_report ? (
-              <section className="panel block-fullness-panel">
-                <div>
-                  <p className="section-kicker">Fee report card</p>
-                  <h2>Grade {tx.fee_report.grade}</h2>
-                  <p>
-                    {tx.fee_report.verdict} Fee rate:{" "}
-                    {tx.fee_report.fee_rate_sat_vb} sat/vB.
-                  </p>
-                </div>
-                <FeeStrip report={tx.fee_report} />
-              </section>
-            ) : null}
-
+          <section className="panel side-detail-panel tx-metadata-panel">
+            <h2 className="text-xl font-semibold">Metadata</h2>
+            <dl className="tx-metadata-list">
+              <Detail label="Hash" value={tx.hash} mono copy />
+              <Detail
+                label="Block"
+                value={tx.blockhash ?? "mempool"}
+                href={tx.blockhash ? `/block/${tx.blockhash}` : undefined}
+                mono
+                copy={Boolean(tx.blockhash)}
+              />
+              <Detail label="Size" value={formatBytes(tx.size)} />
+              <Detail label="Weight" value={formatNumber(tx.weight)} />
+              <Detail label="Version" value={formatNumber(tx.version)} />
+              <Detail label="Locktime" value={formatNumber(tx.locktime)} />
+            </dl>
           </section>
 
-          <aside className="tx-side-column">
-            <section className="panel side-detail-panel">
-              <h2 className="text-xl font-semibold">Metadata</h2>
-              <dl className="mt-4 space-y-4 text-sm">
-                <Detail label="Hash" value={tx.hash} mono copy />
-                <Detail
-                  label="Block"
-                  value={tx.blockhash ?? "mempool"}
-                  href={tx.blockhash ? `/block/${tx.blockhash}` : undefined}
-                  mono
-                  copy={Boolean(tx.blockhash)}
-                />
-                <Detail label="Size" value={formatBytes(tx.size)} />
-                <Detail label="Weight" value={formatNumber(tx.weight)} />
-                <Detail label="Version" value={formatNumber(tx.version)} />
-                <Detail label="Locktime" value={formatNumber(tx.locktime)} />
-              </dl>
+          {tx.fee_report ? (
+            <section className="panel block-fullness-panel">
+              <div>
+                <p className="section-kicker">Fee report card</p>
+                <h2>Grade {tx.fee_report.grade}</h2>
+                <p>
+                  {tx.fee_report.verdict} Fee rate:{" "}
+                  {tx.fee_report.fee_rate_sat_vb} sat/vB.
+                </p>
+              </div>
+              <FeeStrip report={tx.fee_report} />
             </section>
-          </aside>
+          ) : null}
 
           <section className="panel flow-panel tx-flow-wide">
             <div className="panel-heading detail-panel-heading">
