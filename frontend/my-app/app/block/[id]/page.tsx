@@ -1,12 +1,15 @@
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
+import ErrorState from "@/app/error-state";
 import SiteHeader from "@/app/site-header";
 import {
   BlockDetail,
   BlockTransactions,
   blockFullnessPercent,
-  compactHash,
+  errorMessage,
   formatBtcFromSats,
+  formatBlockAge,
   formatBytes,
   formatNumber,
   formatTime,
@@ -22,19 +25,48 @@ type PageProps = {
 };
 
 const TX_PAGE_SIZE = 12;
+const CAPACITY_GRID_COLUMNS = 16;
+const CAPACITY_GRID_ROWS = 16;
+const CAPACITY_GRID_CELLS = CAPACITY_GRID_COLUMNS * CAPACITY_GRID_ROWS;
 
 export default async function BlockPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const { offset: offsetParam } = await searchParams;
   const offset = offsetParam && /^\d+$/.test(offsetParam) ? Number(offsetParam) : 0;
-  const block = await getJson<BlockDetail>(`/api/block/${encodeURIComponent(id)}`);
-  const txs = await getJson<BlockTransactions>(
-    `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
-  );
+  let block: BlockDetail;
+  try {
+    block = await getJson<BlockDetail>(`/api/block/${encodeURIComponent(id)}`);
+  } catch (error) {
+    return (
+      <ErrorState
+        title="Block not available"
+        message={errorMessage(
+          error,
+          "The provider could not return this block. Check the height/hash or try again shortly.",
+        )}
+      />
+    );
+  }
+
+  let txs: BlockTransactions | undefined;
+  let txsError: string | undefined;
+  try {
+    txs = await getJson<BlockTransactions>(
+      `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
+    );
+  } catch (error) {
+    txsError = errorMessage(
+      error,
+      "Transaction summaries are not available from the provider for this block.",
+    );
+  }
+  const fallbackTxids = block.txids.slice(offset, offset + TX_PAGE_SIZE);
+  const visibleTxCount = txs?.transactions.length ?? fallbackTxids.length;
+  const totalTxCount = txs?.total ?? block.tx_count;
   const previousOffset = Math.max(0, offset - TX_PAGE_SIZE);
-  const nextOffset = offset + txs.transactions.length;
+  const nextOffset = offset + visibleTxCount;
   const hasPrevious = offset > 0;
-  const hasNext = offset + txs.transactions.length < txs.total;
+  const hasNext = offset + visibleTxCount < totalTxCount;
   const fullness = blockFullnessPercent(block.weight);
 
   return (
@@ -55,7 +87,9 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 Block {block.height.toLocaleString("en-US")}
               </h1>
               <div className="hash-line">
-                <p className="mono">{block.hash}</p>
+                <Link href={`/block/${block.hash}`} className="entity-link mono">
+                  {block.hash}
+                </Link>
                 <CopyButton value={block.hash} label="Copy hash" compact />
               </div>
             </div>
@@ -110,101 +144,36 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
             </div>
 
             <section className="panel block-fullness-panel">
-              <div>
-                <p className="section-kicker">Block capacity</p>
-                <h2>{fullness === undefined ? "Pending weight data" : `${fullness.toFixed(1)}% full`}</h2>
-                <p>
-                  Bitcoin blocks are limited by weight. This bar tracks the block
-                  against the 4,000,000 weight-unit maximum.
-                </p>
+              <BlockCapacityMap percent={fullness} />
+              <div className="block-capacity-main">
+                <div className="block-capacity-heading">
+                  <div>
+                    <p className="section-kicker">Block filling</p>
+                    <h2>{fullness === undefined ? "Pending weight data" : `${fullness.toFixed(2)}%`}</h2>
+                  </div>
+                  <span>4M WU limit</span>
+                </div>
+                <div>
+                  <p>
+                    Bitcoin blocks are limited by weight. This meter tracks the block
+                    against the 4,000,000 weight-unit maximum.
+                  </p>
+                </div>
+                <BlockFillBar percent={fullness} />
               </div>
-              <BlockFillBar percent={fullness} />
             </section>
 
-            <section className="panel detail-panel">
-              <div className="panel-heading detail-panel-heading">
-                <h2 className="text-xl font-semibold">Transactions</h2>
-                <p className="text-sm text-[var(--muted)]">
-                  Showing {offset + 1}-{offset + txs.transactions.length} of{" "}
-                  {txs.total.toLocaleString("en-US")} transactions. Click a row
-                  to inspect inputs and outputs.
-                </p>
-              </div>
-              <div className="tx-list">
-                {txs.transactions.map((tx) => (
-                  <article key={tx.txid} className="tx-row tx-card-row">
-                    <Link
-                      href={`/tx/${tx.txid}?block_hash=${block.hash}`}
-                      className="tx-main"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase text-[var(--muted)]">
-                          Txid
-                        </p>
-                        <p className="mt-1 font-mono text-sm">
-                          {compactHash(tx.txid, 18, 12)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase text-[var(--muted)]">
-                          Inputs
-                        </p>
-                        <p className="mt-1 font-mono text-lg font-semibold">
-                          {tx.input_count}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase text-[var(--muted)]">
-                          Outputs
-                        </p>
-                        <p className="mt-1 font-mono text-lg font-semibold">
-                          {tx.output_count}
-                        </p>
-                      </div>
-                      <div className="tx-value">
-                        <p className="text-xs font-semibold uppercase text-[var(--muted)]">
-                          Value
-                        </p>
-                        <p className="mt-1 font-mono text-sm font-semibold">
-                          {formatBtcFromSats(tx.output_value_sat)}
-                        </p>
-                      </div>
-                    </Link>
-                    <CopyButton value={tx.txid} label="Copy txid" compact />
-                  </article>
-                ))}
-              </div>
-              <div className="panel-footer">
-                <div className="pagination-meta">
-                  Page {Math.floor(offset / TX_PAGE_SIZE) + 1} . {TX_PAGE_SIZE} per page
-                </div>
-                <div className="pagination-actions">
-                  {hasPrevious ? (
-                    <Link
-                      href={`/block/${encodeURIComponent(id)}?offset=${previousOffset}`}
-                      className="outline-button"
-                    >
-                      <MaterialIcon name="arrow_back" /> Previous
-                    </Link>
-                  ) : null}
-                  {hasNext ? (
-                    <Link
-                      href={`/block/${encodeURIComponent(id)}?offset=${nextOffset}`}
-                      className="outline-button"
-                    >
-                      Next <MaterialIcon name="arrow_forward" />
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
-            </section>
           </section>
 
           <aside className="space-y-5">
             <section className="panel side-detail-panel">
               <h2 className="text-xl font-semibold">Header</h2>
               <dl className="mt-4 space-y-4 text-sm">
-                <Detail label="Time" value={formatTime(block.timestamp)} />
+                <Detail
+                  label="Time"
+                  value={formatBlockAge(block.timestamp)}
+                  sub={formatTime(block.timestamp)}
+                />
                 <Detail label="Merkle root" value={block.merkleroot} mono copy />
                 <Detail label="Bits" value={block.bits} mono />
                 <Detail label="Nonce" value={block.nonce.toString()} mono />
@@ -215,21 +184,118 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 <Detail label="Weight" value={formatNumber(block.weight)} />
               </dl>
             </section>
-
-            <section className="panel note-panel">
-              <div className="flex items-start gap-3">
-                <MaterialIcon name="tag" className="mt-1 text-[var(--accent)]" />
-                <div>
-                  <h2 className="text-lg font-semibold">Lookup note</h2>
-                  <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                    BitRPC can resolve confirmed transactions reliably when the
-                    request includes this block hash. That is why tx links carry
-                    it forward.
-                  </p>
-                </div>
-              </div>
-            </section>
           </aside>
+
+          <section className="panel detail-panel lg:col-span-2">
+            <div className="panel-heading detail-panel-heading">
+              <h2 className="text-xl font-semibold">Transactions</h2>
+              <p className="text-sm text-[var(--muted)]">
+                Showing {totalTxCount === 0 ? 0 : offset + 1}-{offset + visibleTxCount} of{" "}
+                {totalTxCount.toLocaleString("en-US")} transactions.
+                {txs ? " Click a row to inspect inputs and outputs." : " Provider summaries are unavailable, so raw txids are shown."}
+              </p>
+            </div>
+            {txsError ? (
+              <div className="provider-note">
+                <MaterialIcon name="info" />
+                <p>{txsError}</p>
+              </div>
+            ) : null}
+            <div className="tx-list">
+              {txs
+                ? txs.transactions.map((tx) => (
+                    <article key={tx.txid} className="tx-row tx-card-row">
+                      <Link
+                        href={`/tx/${tx.txid}?block_hash=${block.hash}`}
+                        className="tx-main"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase text-[var(--muted)]">
+                            Txid
+                          </p>
+                          <p className="txid-full mt-1 font-mono text-sm">
+                            {tx.txid}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-[var(--muted)]">
+                            Inputs
+                          </p>
+                          <p className="mt-1 font-mono text-lg font-semibold">
+                            {tx.input_count}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-[var(--muted)]">
+                            Outputs
+                          </p>
+                          <p className="mt-1 font-mono text-lg font-semibold">
+                            {tx.output_count}
+                          </p>
+                        </div>
+                        <div className="tx-value">
+                          <p className="text-xs font-semibold uppercase text-[var(--muted)]">
+                            Value
+                          </p>
+                          <p className="mt-1 font-mono text-sm font-semibold">
+                            {formatBtcFromSats(tx.output_value_sat)}
+                          </p>
+                        </div>
+                      </Link>
+                      <CopyButton value={tx.txid} label="Copy txid" compact />
+                    </article>
+                  ))
+                : fallbackTxids.map((txid) => (
+                    <article key={txid} className="tx-row tx-card-row">
+                      <Link
+                        href={`/tx/${txid}?block_hash=${block.hash}`}
+                        className="tx-main tx-main-fallback"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase text-[var(--muted)]">
+                            Txid
+                          </p>
+                          <p className="txid-full mt-1 font-mono text-sm">
+                            {txid}
+                          </p>
+                        </div>
+                        <div className="tx-value">
+                          <p className="text-xs font-semibold uppercase text-[var(--muted)]">
+                            Status
+                          </p>
+                          <p className="mt-1 font-mono text-sm font-semibold">
+                            summary unavailable
+                          </p>
+                        </div>
+                      </Link>
+                      <CopyButton value={txid} label="Copy txid" compact />
+                    </article>
+                  ))}
+            </div>
+            <div className="panel-footer">
+              <div className="pagination-meta">
+                Page {Math.floor(offset / TX_PAGE_SIZE) + 1} . {TX_PAGE_SIZE} per page
+              </div>
+              <div className="pagination-actions">
+                {hasPrevious ? (
+                  <Link
+                    href={`/block/${encodeURIComponent(id)}?offset=${previousOffset}`}
+                    className="outline-button"
+                  >
+                    <MaterialIcon name="arrow_back" /> Previous
+                  </Link>
+                ) : null}
+                {hasNext ? (
+                  <Link
+                    href={`/block/${encodeURIComponent(id)}?offset=${nextOffset}`}
+                    className="outline-button"
+                  >
+                    Next <MaterialIcon name="arrow_forward" />
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          </section>
         </div>
       </section>
     </main>
@@ -261,14 +327,45 @@ function Stat({
 
 function BlockFillBar({ percent }: { percent?: number }) {
   const safePercent = percent ?? 0;
+  const label = percent === undefined ? "pending" : `${percent.toFixed(1)}%`;
   return (
     <div className="block-fill block-fill-large">
-      <span className="block-fill-track">
+      <div className="block-fill-header">
+        <span>Block filling</span>
+        <strong>{label}</strong>
+      </div>
+      <span className="block-fill-track" aria-label={`Block filling ${label}`}>
         <span style={{ width: `${safePercent}%` }} />
       </span>
-      <span className="block-fill-label">
-        {percent === undefined ? "pending" : `${percent.toFixed(1)}%`}
-      </span>
+    </div>
+  );
+}
+
+function BlockCapacityMap({ percent }: { percent?: number }) {
+  const safePercent = Math.min(100, Math.max(0, percent ?? 0));
+  const cellCapacity = 100 / CAPACITY_GRID_CELLS;
+
+  return (
+    <div
+      className="block-capacity-map"
+      aria-label={`Block capacity ${percent === undefined ? "pending" : `${percent.toFixed(2)}% full`}`}
+      role="img"
+    >
+      {Array.from({ length: CAPACITY_GRID_CELLS }, (_, index) => {
+        const row = Math.floor(index / CAPACITY_GRID_COLUMNS);
+        const column = index % CAPACITY_GRID_COLUMNS;
+        const fillOrder = (CAPACITY_GRID_ROWS - 1 - row) * CAPACITY_GRID_COLUMNS + column;
+        const cellStart = fillOrder * cellCapacity;
+        const cellFill = Math.min(100, Math.max(0, ((safePercent - cellStart) / cellCapacity) * 100));
+
+        return (
+          <span
+            key={index}
+            className="block-capacity-cell"
+            style={{ "--cell-fill": `${cellFill}%` } as CSSProperties}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -276,11 +373,13 @@ function BlockFillBar({ percent }: { percent?: number }) {
 function Detail({
   label,
   value,
+  sub,
   mono = false,
   copy = false,
 }: {
   label: string;
   value: string;
+  sub?: string;
   mono?: boolean;
   copy?: boolean;
 }) {
@@ -294,7 +393,14 @@ function Detail({
           mono ? "font-mono text-xs" : "text-sm"
         }`}
       >
-        <span>{value}</span>
+        <span>
+          {value}
+          {sub ? (
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              {sub}
+            </span>
+          ) : null}
+        </span>
         {copy ? <CopyButton value={value} label={`Copy ${label}`} compact /> : null}
       </dd>
     </div>

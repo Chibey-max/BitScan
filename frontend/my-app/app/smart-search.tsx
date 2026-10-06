@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { classifyQuery } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 
 export default function SmartSearch() {
   const [value, setValue] = useState("");
-  const type = classifyQuery(value);
 
   return (
     <form
@@ -26,7 +24,6 @@ export default function SmartSearch() {
         value={value}
         onChange={(event) => setValue(event.target.value)}
       />
-      <span className="query-chip">{type}</span>
       <kbd>/</kbd>
     </form>
   );

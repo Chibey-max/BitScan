@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SearchResult, getJson } from "@/app/lib/explorer";
+import {
+  ApiError,
+  SearchResult,
+  errorMessage,
+  getJson,
+} from "@/app/lib/explorer";
 import SiteHeader from "@/app/site-header";
 
 export const dynamic = "force-dynamic";
@@ -22,14 +27,31 @@ export default async function SearchPage({ searchParams }: PageProps) {
     result = await getJson<SearchResult>(
       `/api/search?q=${encodeURIComponent(query)}`,
     );
-  } catch {
+  } catch (error) {
+    const isTxid = /^[a-fA-F0-9]{64}$/.test(query);
+    const isAddress = /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{24,}$/i.test(query);
+    const providerLimited = error instanceof ApiError && error.status >= 500;
+    const message =
+      providerLimited && isAddress
+        ? "Address search is limited in the BitRPC-only build. The RPC provider rejected this request, so BitScan cannot show address history here."
+        : providerLimited && isTxid
+          ? "This txid could not be resolved by the current provider without block context. Open the containing block first, then select the transaction from that block."
+          : errorMessage(
+              error,
+              "No block, transaction, or address matched that query. For older txids, open the containing block first so the request can include the block hash.",
+            );
     return (
-      <SearchError message="No block matched that query. BitRPC txid lookup needs the containing block hash, so open the block first when inspecting old transactions." />
+      <SearchError
+        message={message}
+      />
     );
   }
 
   if (result.type === "block") {
     redirect(`/block/${result.height ?? result.hash}`);
+  }
+  if (result.type === "address") {
+    redirect(`/address/${result.address}`);
   }
   redirect(`/tx/${result.txid}`);
 }
