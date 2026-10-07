@@ -1,4 +1,5 @@
 export type Tip = {
+  network?: NetworkKey;
   height: number;
   hash: string;
   chain?: string;
@@ -6,9 +7,19 @@ export type Tip = {
 };
 
 export type Mempool = {
+  network?: NetworkKey;
   size: number;
   bytes: number;
+  usage?: number;
   min_fee_rate?: number;
+  pressure?: string;
+  fee_bands?: FeeBands;
+};
+
+export type FeeBands = {
+  low_sat_vb?: number;
+  medium_sat_vb?: number;
+  high_sat_vb?: number;
 };
 
 export type BlockSummary = {
@@ -22,11 +33,13 @@ export type BlockSummary = {
 };
 
 export type BlocksResponse = {
+  network?: NetworkKey;
   blocks: BlockSummary[];
   next_from_height?: number;
 };
 
 export type BlockDetail = BlockSummary & {
+  network?: NetworkKey;
   previous_block_hash?: string;
   next_block_hash?: string;
   confirmations?: number;
@@ -40,12 +53,15 @@ export type BlockDetail = BlockSummary & {
 export type TxSummary = {
   txid: string;
   fee_sat?: number;
+  fee_rate_sat_vb?: number;
   input_count: number;
   output_count: number;
   output_value_sat: number;
+  script_types?: string[];
 };
 
 export type BlockTransactions = {
+  network?: NetworkKey;
   block: BlockSummary;
   total: number;
   offset: number;
@@ -57,8 +73,11 @@ export type TxOutput = {
   n: number;
   value_sat: number;
   script_type?: string;
+  script_asm?: string;
+  script_hex?: string;
+  decoded_op_return?: string;
   address?: string;
-  op_return_text?: string;
+  spent?: boolean;
 };
 
 export type TxInput = {
@@ -70,9 +89,9 @@ export type TxInput = {
 };
 
 export type TransactionDetail = {
+  network?: NetworkKey;
   txid: string;
   hash: string;
-  hex?: string;
   size?: number;
   vsize?: number;
   weight?: number;
@@ -81,9 +100,27 @@ export type TransactionDetail = {
   blockhash?: string;
   confirmations?: number;
   fee_sat?: number;
+  fee_rate_sat_vb?: number;
+  fee_grade?: FeeGrade;
+  summary?: TxInsight;
   inputs?: TxInput[];
   outputs?: TxOutput[];
   fee_report?: FeeReport;
+};
+
+export type FeeGrade = {
+  grade: string;
+  verdict: string;
+  target_blocks?: number;
+};
+
+export type TxInsight = {
+  is_coinbase: boolean;
+  has_op_return: boolean;
+  input_total_sat?: number;
+  output_total_sat: number;
+  script_types: string[];
+  explanation: string;
 };
 
 export type FeeReport = {
@@ -99,45 +136,32 @@ export type FeeReport = {
   percentiles_sat_vb: number[];
 };
 
-export type BlockMessages = {
-  block_hash: string;
-  height: number;
-  coinbase_tag?: string;
-  messages: Array<{
-    txid: string;
-    output_index?: number;
-    kind: string;
-    text: string;
-  }>;
-};
-
 export type AddressTransaction = {
   txid: string;
   block_height?: number;
   timestamp?: number;
   fee_sat?: number;
+  // Sum of this transaction's outputs paying the address.
   received_sat: number;
-  sent_sat: number;
-  net_sat: number;
+  // The address appears among the inputs; the amount it spent is not derivable
+  // from the indexer's response, so it is not reported per transaction.
+  spends_from_address: boolean;
 };
 
+// Mirrors the Rust `AddressResponse`: totals from the address indexer's balance
+// endpoint, history from its per-address transaction endpoint.
 export type AddressDetail = {
+  network?: NetworkKey;
   address: string;
   is_valid: boolean;
-  script_pub_key?: string;
+  address_type?: string;
   balance_sat: number;
   received_sat: number;
   sent_sat: number;
   pending_balance_sat: number;
-  tx_count: number;
-  utxo_count: number;
-  utxos: Array<{
-    txid: string;
-    vout: number;
-    height?: number;
-    value_sat: number;
-  }>;
-  transactions?: AddressTransaction[];
+  offset: number;
+  limit: number;
+  transactions: AddressTransaction[];
   source: string;
 };
 
@@ -148,6 +172,29 @@ export type SearchResult =
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+
+export type NetworkKey = "mainnet" | "testnet";
+
+export function normalizeNetwork(value?: string): NetworkKey {
+  return value === "testnet" ? "testnet" : "mainnet";
+}
+
+export function networkLabel(network: NetworkKey) {
+  return network === "testnet" ? "Testnet" : "Mainnet";
+}
+
+export function networkQuery(network: NetworkKey) {
+  return network === "testnet" ? "network=testnet" : "";
+}
+
+export function withNetwork(path: string, network: NetworkKey) {
+  if (network === "mainnet") return path;
+  return `${path}${path.includes("?") ? "&" : "?"}${networkQuery(network)}`;
+}
+
+export function networkHref(path: string, network: NetworkKey) {
+  return withNetwork(path, network);
+}
 
 export class ApiError extends Error {
   status: number;
@@ -194,6 +241,15 @@ export function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+export function isNetworkUnavailable(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    error.status === 400 &&
+    typeof error.detail === "string" &&
+    error.detail.includes("testnet is not configured")
+  );
+}
+
 export function compactHash(value: string, lead = 10, tail = 8) {
   if (value.length <= lead + tail + 3) return value;
   return `${value.slice(0, lead)}...${value.slice(-tail)}`;
@@ -228,6 +284,11 @@ export function formatBytes(value?: number) {
 export function formatBtcFromSats(value?: number) {
   if (value === undefined || value === null) return "pending";
   return `${(value / 100_000_000).toFixed(8)} BTC`;
+}
+
+export function formatFeeRate(value?: number) {
+  if (value === undefined || value === null || Number.isNaN(value)) return "pending";
+  return `${value.toFixed(value >= 10 ? 1 : 2)} sat/vB`;
 }
 
 export function formatTime(timestamp: number) {

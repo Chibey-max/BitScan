@@ -11,9 +11,14 @@ import {
   formatBtcFromSats,
   formatBlockAge,
   formatBytes,
+  formatFeeRate,
   formatNumber,
   formatTime,
   getJson,
+  isNetworkUnavailable,
+  networkHref,
+  normalizeNetwork,
+  withNetwork,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 
@@ -21,7 +26,7 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ offset?: string }>;
+  searchParams: Promise<{ offset?: string; network?: string }>;
 };
 
 const TX_PAGE_SIZE = 12;
@@ -31,12 +36,25 @@ const CAPACITY_GRID_CELLS = CAPACITY_GRID_COLUMNS * CAPACITY_GRID_ROWS;
 
 export default async function BlockPage({ params, searchParams }: PageProps) {
   const { id } = await params;
-  const { offset: offsetParam } = await searchParams;
+  const { offset: offsetParam, network: networkParam } = await searchParams;
+  const network = normalizeNetwork(networkParam);
   const offset = offsetParam && /^\d+$/.test(offsetParam) ? Number(offsetParam) : 0;
   let block: BlockDetail;
   try {
-    block = await getJson<BlockDetail>(`/api/block/${encodeURIComponent(id)}`);
+    block = await getJson<BlockDetail>(withNetwork(`/api/block/${encodeURIComponent(id)}`, network));
   } catch (error) {
+    if (isNetworkUnavailable(error)) {
+      return (
+        <ErrorState
+          eyebrow="Network unavailable"
+          title="Testnet is not connected yet"
+          message="This deployment needs a testnet Bitcoin RPC endpoint before testnet blocks can be explored."
+          primaryHref="/"
+          primaryLabel="Open mainnet"
+          network="mainnet"
+        />
+      );
+    }
     return (
       <ErrorState
         title="Block not available"
@@ -44,6 +62,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
           error,
           "The provider could not return this block. Check the height/hash or try again shortly.",
         )}
+        network={network}
       />
     );
   }
@@ -52,7 +71,10 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
   let txsError: string | undefined;
   try {
     txs = await getJson<BlockTransactions>(
-      `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
+      withNetwork(
+        `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
+        network,
+      ),
     );
   } catch (error) {
     txsError = errorMessage(
@@ -71,11 +93,11 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
 
   return (
     <main className="app-shell">
-      <SiteHeader />
+      <SiteHeader network={network} />
       <section className="detail-page">
         <header className="detail-hero reveal-panel">
           <Link
-            href="/"
+            href={networkHref("/", network)}
             className="back-link"
           >
             <MaterialIcon name="chevron_left" />
@@ -87,7 +109,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 Block {block.height.toLocaleString("en-US")}
               </h1>
               <div className="hash-line">
-                <Link href={`/block/${block.hash}`} className="entity-link mono">
+                <Link href={networkHref(`/block/${block.hash}`, network)} className="entity-link mono">
                   {block.hash}
                 </Link>
                 <CopyButton value={block.hash} label="Copy hash" compact />
@@ -96,7 +118,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
             <div className="flex flex-wrap gap-2">
               {block.previous_block_hash ? (
                 <Link
-                  href={`/block/${block.height - 1}`}
+                  href={networkHref(`/block/${block.height - 1}`, network)}
                   className="outline-button"
                 >
                   <MaterialIcon name="arrow_back" />
@@ -105,7 +127,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               ) : null}
               {block.next_block_hash ? (
                 <Link
-                  href={`/block/${block.height + 1}`}
+                  href={networkHref(`/block/${block.height + 1}`, network)}
                   className="outline-button"
                 >
                   Next
@@ -206,7 +228,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 ? txs.transactions.map((tx) => (
                     <article key={tx.txid} className="tx-row tx-card-row">
                       <Link
-                        href={`/tx/${tx.txid}?block_hash=${block.hash}`}
+                        href={networkHref(`/tx/${tx.txid}?block_hash=${block.hash}`, network)}
                         className="tx-main"
                       >
                         <div className="min-w-0">
@@ -240,6 +262,14 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                           <p className="mt-1 font-mono text-sm font-semibold">
                             {formatBtcFromSats(tx.output_value_sat)}
                           </p>
+                          <p className="mt-1 font-mono text-xs text-[var(--muted)]">
+                            {formatFeeRate(tx.fee_rate_sat_vb)}
+                          </p>
+                          {tx.script_types?.length ? (
+                            <p className="mt-1 text-xs text-[var(--muted)]">
+                              {tx.script_types.slice(0, 2).join(", ")}
+                            </p>
+                          ) : null}
                         </div>
                       </Link>
                       <CopyButton value={tx.txid} label="Copy txid" compact />
@@ -248,7 +278,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 : fallbackTxids.map((txid) => (
                     <article key={txid} className="tx-row tx-card-row">
                       <Link
-                        href={`/tx/${txid}?block_hash=${block.hash}`}
+                        href={networkHref(`/tx/${txid}?block_hash=${block.hash}`, network)}
                         className="tx-main tx-main-fallback"
                       >
                         <div className="min-w-0">
@@ -279,7 +309,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               <div className="pagination-actions">
                 {hasPrevious ? (
                   <Link
-                    href={`/block/${encodeURIComponent(id)}?offset=${previousOffset}`}
+                    href={networkHref(`/block/${encodeURIComponent(id)}?offset=${previousOffset}`, network)}
                     className="outline-button"
                   >
                     <MaterialIcon name="arrow_back" /> Previous
@@ -287,7 +317,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 ) : null}
                 {hasNext ? (
                   <Link
-                    href={`/block/${encodeURIComponent(id)}?offset=${nextOffset}`}
+                    href={networkHref(`/block/${encodeURIComponent(id)}?offset=${nextOffset}`, network)}
                     className="outline-button"
                   >
                     Next <MaterialIcon name="arrow_forward" />

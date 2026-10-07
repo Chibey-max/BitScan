@@ -10,15 +10,20 @@ import {
   errorMessage,
   formatBtcFromSats,
   formatBytes,
+  formatFeeRate,
   formatNumber,
   getJson,
+  isNetworkUnavailable,
+  networkHref,
+  normalizeNetwork,
+  withNetwork,
 } from "@/app/lib/explorer";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ txid: string }>;
-  searchParams: Promise<{ block_hash?: string }>;
+  searchParams: Promise<{ block_hash?: string; network?: string }>;
 };
 
 export default async function TransactionPage({
@@ -26,16 +31,29 @@ export default async function TransactionPage({
   searchParams,
 }: PageProps) {
   const { txid } = await params;
-  const { block_hash } = await searchParams;
+  const { block_hash, network: networkParam } = await searchParams;
+  const network = normalizeNetwork(networkParam);
   const suffix = block_hash
     ? `?block_hash=${encodeURIComponent(block_hash)}`
     : "";
   let tx: TransactionDetail;
   try {
     tx = await getJson<TransactionDetail>(
-      `/api/tx/${encodeURIComponent(txid)}${suffix}`,
+      withNetwork(`/api/tx/${encodeURIComponent(txid)}${suffix}`, network),
     );
   } catch (error) {
+    if (isNetworkUnavailable(error)) {
+      return (
+        <ErrorState
+          eyebrow="Network unavailable"
+          title="Testnet is not connected yet"
+          message="BitScan can route testnet transaction lookups, but the backend still needs a testnet Bitcoin RPC endpoint."
+          primaryHref="/"
+          primaryLabel="Open mainnet"
+          network="mainnet"
+        />
+      );
+    }
     return (
       <ErrorState
         title="Transaction not available"
@@ -43,8 +61,9 @@ export default async function TransactionPage({
           error,
           "The provider could not return this transaction. If this is an old confirmed tx, open it from its block so the request can include the block hash.",
         )}
-        secondaryHref={block_hash ? `/block/${block_hash}` : undefined}
+        secondaryHref={block_hash ? networkHref(`/block/${block_hash}`, network) : undefined}
         secondaryLabel={block_hash ? "Open block" : undefined}
+        network={network}
       />
     );
   }
@@ -57,11 +76,11 @@ export default async function TransactionPage({
 
   return (
     <main className="app-shell">
-      <SiteHeader />
+      <SiteHeader network={network} />
       <section className="detail-page">
         <header className="detail-hero reveal-panel">
           <Link
-            href={tx.blockhash ? `/block/${tx.blockhash}` : "/"}
+            href={tx.blockhash ? networkHref(`/block/${tx.blockhash}`, network) : networkHref("/", network)}
             className="back-link"
           >
             <MaterialIcon name="arrow_back" />
@@ -72,7 +91,7 @@ export default async function TransactionPage({
               Transaction
             </h1>
             <div className="hash-line">
-              <Link href={`/tx/${tx.txid}${tx.blockhash ? `?block_hash=${tx.blockhash}` : ""}`} className="entity-link mono">
+              <Link href={networkHref(`/tx/${tx.txid}${tx.blockhash ? `?block_hash=${tx.blockhash}` : ""}`, network)} className="entity-link mono">
                 {tx.txid}
               </Link>
               <CopyButton value={tx.txid} label="Copy txid" compact />
@@ -116,7 +135,7 @@ export default async function TransactionPage({
               <Detail
                 label="Block"
                 value={tx.blockhash ?? "mempool"}
-                href={tx.blockhash ? `/block/${tx.blockhash}` : undefined}
+                href={tx.blockhash ? networkHref(`/block/${tx.blockhash}`, network) : undefined}
                 mono
                 copy={Boolean(tx.blockhash)}
               />
@@ -127,17 +146,38 @@ export default async function TransactionPage({
             </dl>
           </section>
 
-          {tx.fee_report ? (
+          <section className="panel block-fullness-panel">
+            <div>
+              <p className="section-kicker">Fee intelligence</p>
+              <h2>Grade {tx.fee_grade?.grade ?? tx.fee_report?.grade ?? "n/a"}</h2>
+              <p>
+                {tx.fee_grade?.verdict ?? tx.fee_report?.verdict ?? "Fee rate unavailable."}{" "}
+                Fee rate: {formatFeeRate(tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb)}.
+              </p>
+              {tx.fee_grade?.target_blocks ? (
+                <p className="mt-2 text-sm text-[var(--muted)]">
+                  Suggested target: about {tx.fee_grade.target_blocks} block
+                  {tx.fee_grade.target_blocks === 1 ? "" : "s"}.
+                </p>
+              ) : null}
+            </div>
+            <FeeStrip percentile={tx.fee_report?.percentile ?? null} feeRate={tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb} />
+          </section>
+
+          {tx.summary ? (
             <section className="panel block-fullness-panel">
               <div>
-                <p className="section-kicker">Fee report card</p>
-                <h2>Grade {tx.fee_report.grade}</h2>
-                <p>
-                  {tx.fee_report.verdict} Fee rate:{" "}
-                  {tx.fee_report.fee_rate_sat_vb} sat/vB.
-                </p>
+                <p className="section-kicker">Transaction intelligence</p>
+                <h2>{tx.summary.is_coinbase ? "Coinbase transaction" : tx.summary.has_op_return ? "Data-carrying transaction" : "Standard spend"}</h2>
+                <p>{tx.summary.explanation}</p>
+                {tx.summary.script_types.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {tx.summary.script_types.map((type) => (
+                      <span key={type} className="flow-chip">{type}</span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              <FeeStrip report={tx.fee_report} />
             </section>
           ) : null}
 
@@ -168,7 +208,7 @@ export default async function TransactionPage({
                       <div className="mt-2 space-y-2">
                         {input.txid ? (
                           <EntityLink
-                            href={`/tx/${input.txid}`}
+                            href={networkHref(`/tx/${input.txid}`, network)}
                             value={input.txid}
                             displayValue={`${input.txid}:${input.vout}`}
                             copyValue={input.txid}
@@ -196,17 +236,34 @@ export default async function TransactionPage({
                       <strong>{formatBtcFromSats(output.value_sat)}</strong>
                     </div>
                     {output.address ? (
-                      <EntityLink
-                        href={`/address/${output.address}`}
-                        value={output.address}
-                        label="address"
-                        className="mt-2 text-sm"
-                      />
+                      <div className="mt-2 space-y-3">
+                        <EntityLink
+                          href={networkHref(`/address/${output.address}`, network)}
+                          value={output.address}
+                          label="address"
+                          className="text-sm"
+                        />
+                        <Link
+                          href={networkHref(
+                            `/receipt?txid=${tx.txid}&address=${output.address}${tx.blockhash ? `&block_hash=${tx.blockhash}` : ""}`,
+                            network,
+                          )}
+                          className="outline-button"
+                        >
+                          <MaterialIcon name="receipt_long" />
+                          Receipt
+                        </Link>
+                      </div>
                     ) : (
                       <p className="mt-2 break-all font-mono text-sm">
                         {output.script_type ?? "unknown"}
                       </p>
                     )}
+                    {output.decoded_op_return ? (
+                      <p className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">
+                        {output.decoded_op_return}
+                      </p>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -218,16 +275,21 @@ export default async function TransactionPage({
   );
 }
 
-function FeeStrip({ report }: { report: NonNullable<TransactionDetail["fee_report"]> }) {
-  const percentile = report.percentile ?? undefined;
-  const marker = percentile ?? Math.min(100, report.fee_rate_sat_vb * 4);
+function FeeStrip({
+  percentile,
+  feeRate,
+}: {
+  percentile?: number | null;
+  feeRate?: number;
+}) {
+  const marker = percentile ?? Math.min(100, (feeRate ?? 0) * 4);
   return (
     <div className="block-fill block-fill-large">
       <span className="block-fill-track">
         <span style={{ width: `${Math.min(100, marker)}%` }} />
       </span>
       <span className="block-fill-label">
-        {percentile === undefined ? "fallback grade" : `${percentile.toFixed(1)} percentile`}
+        {percentile === undefined || percentile === null ? "fee-rate band" : `${percentile.toFixed(1)} percentile`}
       </span>
     </div>
   );

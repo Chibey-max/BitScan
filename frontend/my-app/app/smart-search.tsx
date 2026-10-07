@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { NetworkKey } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 
-export default function SmartSearch() {
+export default function SmartSearch({ network = "mainnet" }: { network?: NetworkKey }) {
   const [value, setValue] = useState("");
 
   return (
@@ -24,6 +25,9 @@ export default function SmartSearch() {
         value={value}
         onChange={(event) => setValue(event.target.value)}
       />
+      {network === "testnet" ? (
+        <input type="hidden" name="network" value="testnet" />
+      ) : null}
       <kbd>/</kbd>
     </form>
   );

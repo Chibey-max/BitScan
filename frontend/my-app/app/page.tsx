@@ -5,7 +5,11 @@ import {
   Mempool,
   Tip,
   getJson,
+  isNetworkUnavailable,
+  normalizeNetwork,
+  withNetwork,
 } from "@/app/lib/explorer";
+import ErrorState from "@/app/error-state";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +53,12 @@ const demoBlocks: BlockSummary[] = [
 ];
 
 type PageProps = {
-  searchParams: Promise<{ from_height?: string }>;
+  searchParams: Promise<{ from_height?: string; network?: string }>;
 };
 
 export default async function Page({ searchParams }: PageProps) {
-  const { from_height } = await searchParams;
+  const { from_height, network: networkParam } = await searchParams;
+  const network = normalizeNetwork(networkParam);
   const fromHeight = from_height && /^\d+$/.test(from_height) ? Number(from_height) : undefined;
   let state: "live" | "demo" = "demo";
   let tip = demoTip;
@@ -63,10 +68,13 @@ export default async function Page({ searchParams }: PageProps) {
 
   try {
     const [nextTip, nextMempool, blockPage] = await Promise.all([
-      getJson<Tip>("/api/tip"),
-      getJson<Mempool>("/api/mempool"),
+      getJson<Tip>(withNetwork("/api/tip", network)),
+      getJson<Mempool>(withNetwork("/api/mempool", network)),
       getJson<BlocksResponse>(
-        `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
+        withNetwork(
+          `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
+          network,
+        ),
       ),
     ]);
     state = "live";
@@ -74,7 +82,19 @@ export default async function Page({ searchParams }: PageProps) {
     mempool = nextMempool;
     blocks = blockPage.blocks;
     nextFromHeight = blockPage.next_from_height;
-  } catch {
+  } catch (error) {
+    if (isNetworkUnavailable(error)) {
+      return (
+        <ErrorState
+          eyebrow="Network unavailable"
+          title="Testnet is not connected yet"
+          message="BitScan understands testnet routes, but this deployment still needs a testnet Bitcoin RPC endpoint before it can serve testnet data."
+          primaryHref="/"
+          primaryLabel="Open mainnet"
+          network="mainnet"
+        />
+      );
+    }
     state = "demo";
   }
 
@@ -86,6 +106,7 @@ export default async function Page({ searchParams }: PageProps) {
       blocks={blocks}
       fromHeight={fromHeight}
       nextFromHeight={nextFromHeight}
+      network={network}
     />
   );
 }

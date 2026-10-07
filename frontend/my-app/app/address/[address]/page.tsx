@@ -1,51 +1,81 @@
+import Link from "next/link";
 import CopyButton from "@/app/copy-button";
 import EntityLink from "@/app/entity-link";
 import ErrorState from "@/app/error-state";
 import {
   AddressDetail,
-  ApiError,
   errorMessage,
   formatBtcFromSats,
   formatNumber,
   formatRelativeBlockTime,
   getJson,
+  isNetworkUnavailable,
+  networkHref,
+  normalizeNetwork,
+  withNetwork,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
 export const dynamic = "force-dynamic";
 
+const TX_PAGE_SIZE = 25;
+
 type PageProps = {
   params: Promise<{ address: string }>;
+  searchParams: Promise<{ offset?: string; network?: string }>;
 };
 
-export default async function AddressPage({ params }: PageProps) {
+export default async function AddressPage({ params, searchParams }: PageProps) {
   const { address } = await params;
+  const { offset: offsetParam, network: networkParam } = await searchParams;
+  const network = normalizeNetwork(networkParam);
+  const offset = offsetParam && /^\d+$/.test(offsetParam) ? Number(offsetParam) : 0;
+
   let detail: AddressDetail;
   try {
     detail = await getJson<AddressDetail>(
-      `/api/address/${encodeURIComponent(address)}`,
+      withNetwork(
+        `/api/address/${encodeURIComponent(address)}?limit=${TX_PAGE_SIZE}&offset=${offset}`,
+        network,
+      ),
     );
   } catch (error) {
-    const message =
-      error instanceof ApiError && error.status >= 500
-        ? "Address lookup is limited in the BitRPC-only build. The RPC provider rejected this request, so BitScan cannot show full address history here."
-        : errorMessage(
-            error,
-            "The BitRPC-backed API could not return this address. Check the address or try again shortly.",
-          );
+    if (isNetworkUnavailable(error)) {
+      return (
+        <ErrorState
+          eyebrow="Network unavailable"
+          title="Testnet is not connected yet"
+          message="Address lookup is network-aware, but this deployment still needs a testnet RPC and indexed provider before testnet addresses can be explored."
+          primaryHref="/"
+          primaryLabel="Open mainnet"
+          network="mainnet"
+        />
+      );
+    }
     return (
       <ErrorState
         title="Address not available"
-        message={message}
+        message={errorMessage(
+          error,
+          "The address indexer could not return this address. Check the address or try again shortly.",
+        )}
+        network={network}
       />
     );
   }
-  const transactions = detail.transactions ?? [];
+
+  const transactions = detail.transactions;
+  // The indexer reports no total count, so a full page is the only signal that
+  // more history exists.
+  const hasNext = transactions.length === detail.limit;
+  const hasPrevious = offset > 0;
+  const previousOffset = Math.max(0, offset - detail.limit);
+  const nextOffset = offset + detail.limit;
 
   return (
     <main className="app-shell">
-      <SiteHeader />
+      <SiteHeader network={network} />
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <div className="panel overflow-hidden">
           <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-start lg:justify-between">
@@ -58,32 +88,64 @@ export default async function AddressPage({ params }: PageProps) {
                 <CopyButton value={detail.address} label="Copy address" compact />
               </div>
               <p className="mt-3 text-sm text-[var(--muted)]">
-                Indexed address data from {detail.source}. Recent activity is normalized by the Rust API before it reaches the UI.
+                Checksum validated locally by the Rust API. Balances and history are
+                indexed by {detail.source}, since Bitcoin Core RPC has no address index.
               </p>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-sm font-semibold text-[var(--muted)]">
-              <span className="h-2 w-2 rounded-full bg-[var(--green)]" />
-              {detail.is_valid ? "Valid address" : "Unverified"}
+            <div className="flex flex-wrap gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-sm font-semibold text-[var(--muted)]">
+                <span className="h-2 w-2 rounded-full bg-[var(--green)]" />
+                {detail.is_valid ? "Valid address" : "Unverified"}
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-sm font-semibold text-[var(--muted)]">
+                <MaterialIcon name="hub" />
+                {detail.address_type ?? "bitcoin address"}
+              </div>
             </div>
           </div>
 
           <div className="grid border-t border-[var(--border)] sm:grid-cols-2 lg:grid-cols-4">
-            <Metric label="Balance" value={formatBtcFromSats(detail.balance_sat)} />
-            <Metric label="Received" value={formatBtcFromSats(detail.received_sat)} />
-            <Metric label="Sent" value={formatBtcFromSats(detail.sent_sat)} />
-            <Metric label="Recent txs" value={formatNumber(detail.tx_count)} />
+            <Metric
+              label="Balance"
+              value={`${formatNumber(detail.balance_sat)} sats`}
+              secondary={formatBtcFromSats(detail.balance_sat)}
+            />
+            <Metric
+              label="Total received"
+              value={`${formatNumber(detail.received_sat)} sats`}
+              secondary={formatBtcFromSats(detail.received_sat)}
+            />
+            <Metric
+              label="Total sent"
+              value={`${formatNumber(detail.sent_sat)} sats`}
+              secondary={formatBtcFromSats(detail.sent_sat)}
+            />
+            <Metric
+              label="Pending"
+              value={`${formatNumber(detail.pending_balance_sat)} sats`}
+              secondary={
+                detail.pending_balance_sat === 0
+                  ? "nothing unconfirmed"
+                  : formatBtcFromSats(detail.pending_balance_sat)
+              }
+            />
           </div>
         </div>
 
         <section className="panel overflow-hidden">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
             <div>
-              <h2 className="text-xl font-semibold">Recent activity</h2>
+              <h2 className="text-xl font-semibold">Transaction history</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                Latest indexed transactions involving this address.
+                {transactions.length > 0
+                  ? `Showing ${formatNumber(offset + 1)}-${formatNumber(offset + transactions.length)}, newest first.`
+                  : "Transactions involving this address, newest first."}
               </p>
             </div>
-            <MaterialIcon name="account_balance_wallet" className="text-[var(--accent)]" />
+            <MaterialIcon
+              name="account_balance_wallet"
+              className="text-[var(--accent)]"
+            />
           </div>
 
           <div className="divide-y divide-[var(--border)]">
@@ -91,27 +153,55 @@ export default async function AddressPage({ params }: PageProps) {
               transactions.map((tx) => (
                 <article
                   key={tx.txid}
-                  className="grid gap-4 px-6 py-5 transition hover:bg-[var(--surface-hover)] lg:grid-cols-[minmax(0,1fr)_160px_160px_120px]"
+                  className="grid gap-4 px-6 py-5 transition hover:bg-[var(--surface-hover)] lg:grid-cols-[minmax(0,1fr)_150px_170px_150px]"
                 >
                   <div className="min-w-0">
-                    <div className="eyebrow">TXID</div>
+                    <div className="eyebrow">Txid</div>
                     <EntityLink
-                      href={`/tx/${tx.txid}`}
+                      href={networkHref(`/tx/${tx.txid}`, network)}
                       value={tx.txid}
                       label="txid"
                       className="mt-1 text-sm"
                     />
                   </div>
-                  <TxMetric label="Received" value={formatBtcFromSats(tx.received_sat)} />
-                  <TxMetric label="Sent" value={formatBtcFromSats(tx.sent_sat)} />
+                  <TxMetric
+                    label="Direction"
+                    value={
+                      tx.spends_from_address
+                        ? tx.received_sat > 0
+                          ? "Sent + change"
+                          : "Sent"
+                        : "Received"
+                    }
+                  />
+                  <TxMetric
+                    label="To this address"
+                    value={
+                      tx.received_sat > 0
+                        ? `${formatNumber(tx.received_sat)} sats`
+                        : "—"
+                    }
+                    secondary={
+                      tx.received_sat > 0
+                        ? formatBtcFromSats(tx.received_sat)
+                        : undefined
+                    }
+                  />
                   <div>
-                    <div className="eyebrow">Status</div>
-                    <div className="mt-1 text-sm font-semibold">
-                      {tx.block_height ? `#${formatNumber(tx.block_height)}` : "Mempool"}
+                    <div className="eyebrow">Block</div>
+                    <div className="mono mt-1 text-sm font-semibold">
+                      {tx.block_height
+                        ? `#${formatNumber(tx.block_height)}`
+                        : "Mempool"}
                     </div>
                     {tx.timestamp ? (
                       <div className="mt-1 text-xs text-[var(--muted)]">
                         {formatRelativeBlockTime(tx.timestamp)}
+                      </div>
+                    ) : null}
+                    {tx.fee_sat ? (
+                      <div className="mono mt-1 text-xs text-[var(--muted)]">
+                        fee {formatNumber(tx.fee_sat)} sats
                       </div>
                     ) : null}
                   </div>
@@ -119,9 +209,48 @@ export default async function AddressPage({ params }: PageProps) {
               ))
             ) : (
               <div className="px-6 py-12 text-center text-sm text-[var(--muted)]">
-                No indexed transactions were returned for this address.
+                {hasPrevious
+                  ? "No further transactions on this page."
+                  : "The indexer returned no transactions for this address."}
               </div>
             )}
+          </div>
+
+          {hasPrevious || hasNext ? (
+            <div className="panel-footer">
+              <div className="pagination-meta">
+                Page {Math.floor(offset / detail.limit) + 1} . {detail.limit} per page
+              </div>
+              <div className="pagination-actions">
+                {hasPrevious ? (
+                  <Link
+                    href={networkHref(`/address/${encodeURIComponent(detail.address)}?offset=${previousOffset}`, network)}
+                    className="outline-button"
+                  >
+                    <MaterialIcon name="arrow_back" /> Previous
+                  </Link>
+                ) : null}
+                {hasNext ? (
+                  <Link
+                    href={networkHref(`/address/${encodeURIComponent(detail.address)}?offset=${nextOffset}`, network)}
+                    className="outline-button"
+                  >
+                    Next <MaterialIcon name="arrow_forward" />
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="provider-note">
+            <MaterialIcon name="info" />
+            <p>
+              Totals come from the indexer&apos;s balance endpoint. Per-transaction
+              amounts show only what was paid <em>to</em> this address — the indexer
+              reports input addresses without their values, so the amount spent in a
+              given transaction cannot be derived without resolving every previous
+              output.
+            </p>
           </div>
         </section>
       </section>
@@ -129,20 +258,42 @@ export default async function AddressPage({ params }: PageProps) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({
+  label,
+  value,
+  secondary,
+}: {
+  label: string;
+  value: string;
+  secondary?: string;
+}) {
   return (
     <div className="border-t border-[var(--border)] p-5 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0">
       <div className="eyebrow">{label}</div>
       <div className="mono mt-2 break-words text-lg font-semibold">{value}</div>
+      {secondary ? (
+        <div className="mono mt-1 text-xs text-[var(--muted)]">{secondary}</div>
+      ) : null}
     </div>
   );
 }
 
-function TxMetric({ label, value }: { label: string; value: string }) {
+function TxMetric({
+  label,
+  value,
+  secondary,
+}: {
+  label: string;
+  value: string;
+  secondary?: string;
+}) {
   return (
     <div>
       <div className="eyebrow">{label}</div>
       <div className="mono mt-1 text-sm font-semibold">{value}</div>
+      {secondary ? (
+        <div className="mono mt-1 text-xs text-[var(--muted)]">{secondary}</div>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NetworkKey, networkHref } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
@@ -10,6 +11,7 @@ type ErrorStateProps = {
   primaryLabel?: string;
   secondaryHref?: string;
   secondaryLabel?: string;
+  network?: NetworkKey;
 };
 
 export default function ErrorState({
@@ -20,10 +22,11 @@ export default function ErrorState({
   primaryLabel = "Back to explorer",
   secondaryHref,
   secondaryLabel,
+  network = "mainnet",
 }: ErrorStateProps) {
   return (
     <main className="app-shell">
-      <SiteHeader />
+      <SiteHeader network={network} />
       <section className="detail-page">
         <div className="panel error-panel reveal-panel">
           <div className="error-icon" aria-hidden="true">
@@ -33,7 +36,7 @@ export default function ErrorState({
           <h1>{title}</h1>
           <p>{message}</p>
           <div className="error-actions">
-            <Link href={primaryHref} className="outline-button">
+            <Link href={networkHref(primaryHref, network)} className="outline-button">
               <MaterialIcon name="arrow_back" />
               {primaryLabel}
             </Link>

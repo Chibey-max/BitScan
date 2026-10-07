@@ -5,67 +5,74 @@ import {
   SearchResult,
   errorMessage,
   getJson,
+  networkHref,
+  normalizeNetwork,
+  withNetwork,
 } from "@/app/lib/explorer";
 import SiteHeader from "@/app/site-header";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; network?: string }>;
 };
 
 export default async function SearchPage({ searchParams }: PageProps) {
-  const { q } = await searchParams;
+  const { q, network: networkParam } = await searchParams;
+  const network = normalizeNetwork(networkParam);
   const query = q?.trim();
 
   if (!query) {
-    return <SearchError message="Enter a block height or block hash." />;
+    return (
+      <SearchError
+        message="Enter a block height, block hash, transaction id, or address."
+        network={network}
+      />
+    );
   }
 
   let result: SearchResult;
   try {
     result = await getJson<SearchResult>(
-      `/api/search?q=${encodeURIComponent(query)}`,
+      withNetwork(`/api/search?q=${encodeURIComponent(query)}`, network),
     );
   } catch (error) {
-    const isTxid = /^[a-fA-F0-9]{64}$/.test(query);
-    const isAddress = /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{24,}$/i.test(query);
+    // Addresses and txids are classified without touching the node, so a 5xx
+    // here means the upstream itself failed rather than a provider limitation.
     const providerLimited = error instanceof ApiError && error.status >= 500;
-    const message =
-      providerLimited && isAddress
-        ? "Address search is limited in the BitRPC-only build. The RPC provider rejected this request, so BitScan cannot show address history here."
-        : providerLimited && isTxid
-          ? "This txid could not be resolved by the current provider without block context. Open the containing block first, then select the transaction from that block."
-          : errorMessage(
-              error,
-              "No block, transaction, or address matched that query. For older txids, open the containing block first so the request can include the block hash.",
-            );
+    const message = providerLimited
+      ? "The upstream provider failed while resolving that query. Please try again shortly."
+      : errorMessage(
+          error,
+          "No block, transaction, or address matched that query. Check the height, hash, txid, or address and try again.",
+        );
     return (
       <SearchError
         message={message}
+        network={network}
       />
     );
   }
 
   if (result.type === "block") {
-    redirect(`/block/${result.height ?? result.hash}`);
+    redirect(networkHref(`/block/${result.height ?? result.hash}`, network));
   }
   if (result.type === "address") {
-    redirect(`/address/${result.address}`);
+    redirect(networkHref(`/address/${result.address}`, network));
   }
-  redirect(`/tx/${result.txid}`);
+  redirect(networkHref(`/tx/${result.txid}`, network));
 }
 
-function SearchError({ message }: { message: string }) {
+function SearchError({ message, network = "mainnet" }: { message: string; network?: "mainnet" | "testnet" }) {
   return (
     <main className="app-shell">
-      <SiteHeader />
+      <SiteHeader network={network} />
       <section className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center px-4 py-10 sm:px-6">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[var(--shadow)]">
           <h1 className="text-2xl font-semibold">Search not resolved</h1>
           <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{message}</p>
           <Link
-            href="/"
+            href={networkHref("/", network)}
             className="mt-5 inline-flex h-10 items-center rounded-md bg-[var(--accent)] px-4 text-sm font-semibold text-[#08101e] transition hover:bg-[var(--accent-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           >
             Back to explorer

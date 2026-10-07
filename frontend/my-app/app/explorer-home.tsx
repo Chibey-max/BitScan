@@ -4,11 +4,15 @@ import CopyButton from "@/app/copy-button";
 import {
   BlockSummary,
   Mempool,
+  NetworkKey,
   Tip,
   blockFullnessPercent,
   compactHash,
   formatBytes,
+  formatFeeRate,
   formatRelativeBlockTime,
+  networkHref,
+  networkLabel,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
@@ -20,6 +24,7 @@ type ExplorerHomeProps = {
   blocks: BlockSummary[];
   fromHeight?: number;
   nextFromHeight?: number;
+  network: NetworkKey;
 };
 
 export default function ExplorerHome({
@@ -29,6 +34,7 @@ export default function ExplorerHome({
   blocks,
   fromHeight,
   nextFromHeight,
+  network,
 }: ExplorerHomeProps) {
   const subsidy = 50 / 2 ** Math.floor(tip.height / 210_000);
   const minRelayFee = mempool.min_fee_rate ? mempool.min_fee_rate * 100_000 : undefined;
@@ -40,13 +46,13 @@ export default function ExplorerHome({
 
   return (
     <main className="app-shell">
-      <SiteHeader live={state === "live"} />
+      <SiteHeader live={state === "live"} network={network} />
       <div className="dashboard-wrap explorer-stage">
         <section className="command-deck reveal-panel">
           <div className="command-copy">
             <div className="live-badge">
               <span className={state === "live" ? "status-dot" : "status-dot status-dot-offline"} />
-              {state === "live" ? "Mainnet live" : "Demo data"}
+              {state === "live" ? `${networkLabel(network)} live` : "Demo data"}
             </div>
             <h1>BitScan Bitcoin Explorer</h1>
             <p>
@@ -58,8 +64,8 @@ export default function ExplorerHome({
             <MaterialIcon name="crowdsource" />
             <p>Data source: bitrpc.thebuidl.xyz.</p>
             <div className="search-examples" aria-label="Search examples">
-              <Link href={`/block/${tip.height}`}>#{tip.height.toLocaleString("en-US")}</Link>
-              <Link href={`/block/${tip.hash}`}>{compactHash(tip.hash, 8, 6)}</Link>
+              <Link href={networkHref(`/block/${tip.height}`, network)}>#{tip.height.toLocaleString("en-US")}</Link>
+              <Link href={networkHref(`/block/${tip.hash}`, network)}>{compactHash(tip.hash, 8, 6)}</Link>
               <span>{state === "live" ? "RPC connected" : "Provider fallback"}</span>
             </div>
           </div>
@@ -70,12 +76,12 @@ export default function ExplorerHome({
             <div className="tip-grid">
               <div>
                 <p className="section-kicker">Current chain tip</p>
-                <Link href={`/block/${tip.height}`} className="tip-height">
+                <Link href={networkHref(`/block/${tip.height}`, network)} className="tip-height">
                   {tip.height.toLocaleString("en-US")}
                   <MaterialIcon name="arrow_forward" />
                 </Link>
                 <div className="tip-hash hash-line">
-                  <Link href={`/block/${tip.hash}`} className="entity-link mono">
+                  <Link href={networkHref(`/block/${tip.hash}`, network)} className="entity-link mono">
                     {tip.hash}
                   </Link>
                   <CopyButton value={tip.hash} label="Copy block hash" compact />
@@ -97,7 +103,7 @@ export default function ExplorerHome({
             <div className="tip-meta">
               <MetricMini label="Verification" value={`${((tip.verification_progress ?? 0) * 100).toFixed(2)}%`} />
               <MetricMini label="Subsidy" value={`${subsidy.toFixed(3)} BTC`} />
-              <MetricMini label="Source" value="BitRPC" />
+              <MetricMini label="Network" value={networkLabel(network)} />
             </div>
             {latestBlock ? (
               <div className="tip-utilization">
@@ -115,20 +121,20 @@ export default function ExplorerHome({
           </div>
 
           <div className="network-stack">
-            <MetricCard
+              <MetricCard
               icon="database"
               label="Mempool"
               value={mempool.size.toLocaleString("en-US")}
               suffix="txs"
-              detail={`${(mempool.bytes / 1_000_000).toFixed(2)} MB waiting`}
+              detail={`${(mempool.bytes / 1_000_000).toFixed(2)} MB waiting . ${mempool.pressure ?? "normal"} pressure`}
               tone="green"
             />
             <MetricCard
               icon="speed"
               label="Min relay fee"
-              value={minRelayFee?.toFixed(2) ?? "n/a"}
+              value={formatFeeRate(mempool.fee_bands?.high_sat_vb ?? minRelayFee).replace(" sat/vB", "")}
               suffix="sat/vB"
-              detail="mempoolminfee"
+              detail={`medium ${formatFeeRate(mempool.fee_bands?.medium_sat_vb)}`}
             />
             <MetricCard
               icon="currency_bitcoin"
@@ -151,14 +157,14 @@ export default function ExplorerHome({
               </div>
               <div className="pagination-actions">
                 {newerFromHeight !== undefined && fromHeight !== undefined && newerFromHeight < tip.height ? (
-                  <Link href={`/?from_height=${newerFromHeight}`} className="icon-button" aria-label="Newer blocks" title="Newer blocks">
+                  <Link href={networkHref(`/?from_height=${newerFromHeight}`, network)} className="icon-button" aria-label="Newer blocks" title="Newer blocks">
                     <MaterialIcon name="arrow_back" />
                   </Link>
                 ) : fromHeight !== undefined ? (
-                  <Link href="/" className="outline-button">Latest</Link>
+                  <Link href={networkHref("/", network)} className="outline-button">Latest</Link>
                 ) : null}
                 {nextFromHeight !== undefined ? (
-                  <Link href={`/?from_height=${nextFromHeight}`} className="outline-button">
+                  <Link href={networkHref(`/?from_height=${nextFromHeight}`, network)} className="outline-button">
                     Older <MaterialIcon name="arrow_forward" />
                   </Link>
                 ) : null}
@@ -170,6 +176,7 @@ export default function ExplorerHome({
                 <BlockRow
                   key={block.hash}
                   block={block}
+                  network={network}
                   newest={index === 0 && fromHeight === undefined}
                 />
               ))}
@@ -209,7 +216,7 @@ export default function ExplorerHome({
                   <MaterialIcon name="schedule" />
                   <h2>Latest mined</h2>
                 </div>
-                <Link href={`/block/${latestBlock.hash}`} className="entity-link mono">
+                <Link href={networkHref(`/block/${latestBlock.hash}`, network)} className="entity-link mono">
                   {compactHash(latestBlock.hash, 12, 10)}
                 </Link>
                 <div className="last-block-stats">
@@ -265,11 +272,11 @@ function MetricMini({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BlockRow({ block, newest }: { block: BlockSummary; newest: boolean }) {
+function BlockRow({ block, newest, network }: { block: BlockSummary; newest: boolean; network: NetworkKey }) {
   const fullness = blockFullnessPercent(block.weight);
 
   return (
-    <Link href={`/block/${block.height}`} className="block-row block-stream-row">
+    <Link href={networkHref(`/block/${block.height}`, network)} className="block-row block-stream-row">
       <span className="block-node" aria-hidden="true">
         <MaterialIcon name="deployed_code" />
       </span>
