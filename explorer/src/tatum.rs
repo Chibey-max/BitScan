@@ -20,6 +20,7 @@ use crate::error::AppError;
 
 pub struct TatumClient {
     client: Client,
+    network: String,
     base_url: String,
     api_key: String,
     cache_ttl: Duration,
@@ -102,6 +103,7 @@ impl<T: Clone> Clone for CacheEntry<T> {
 
 impl TatumClient {
     pub fn new(
+        network: impl Into<String>,
         base_url: String,
         api_key: String,
         cache_ttl_seconds: u64,
@@ -109,6 +111,7 @@ impl TatumClient {
     ) -> Self {
         Self {
             client: Client::new(),
+            network: network.into(),
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key,
             cache_ttl: Duration::from_secs(cache_ttl_seconds),
@@ -120,7 +123,7 @@ impl TatumClient {
     }
 
     pub async fn address_balance(&self, address: &str) -> Result<TatumBalance, AppError> {
-        let cache_key = format!("tatum:address_balance:{address}");
+        let cache_key = format!("tatum:{}:address_balance:{address}", self.network);
         if let Some(balance) = self.balance_cache.fresh(&cache_key, self.cache_ttl) {
             return Ok(balance);
         }
@@ -169,7 +172,10 @@ impl TatumClient {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<Value>, AppError> {
-        let cache_key = format!("tatum:address_txs:{address}:{limit}:{offset}");
+        let cache_key = format!(
+            "tatum:{}:address_txs:{address}:{limit}:{offset}",
+            self.network
+        );
         if let Some(transactions) = self.address_txs_cache.fresh(&cache_key, self.cache_ttl) {
             return Ok(transactions);
         }
@@ -221,7 +227,7 @@ impl TatumClient {
 
     /// A single transaction, resolvable without `txindex` on the node.
     pub async fn transaction(&self, txid: &str) -> Result<Value, AppError> {
-        let cache_key = format!("tatum:tx:{txid}");
+        let cache_key = format!("tatum:{}:tx:{txid}", self.network);
         if let Some(tx) = self.tx_cache.fresh(&cache_key, self.cache_ttl) {
             return Ok(tx);
         }

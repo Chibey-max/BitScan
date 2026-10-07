@@ -8,17 +8,22 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::error::AppError;
 use crate::model::{
-    BlockDetail, BlockTransactionsResponse, BlocksQuery, BlocksResponse, MempoolResponse,
-    PageQuery, TipResponse,
+    BlockDetail, BlockTransactionsResponse, BlocksQuery, BlocksResponse, FeeBands, MempoolResponse,
+    NetworkQuery, PageQuery, TipResponse,
 };
 use crate::rpc::RpcClient;
 
 use super::transactions::tx_summary;
 use super::{block_summary_from_json, get_string, get_u64, is_hex_hash, optional_string};
 
-pub async fn tip(State(state): State<AppState>) -> Result<Json<TipResponse>, AppError> {
-    let info = state.rpc.call("getblockchaininfo", json!([])).await?;
+pub async fn tip(
+    State(state): State<AppState>,
+    Query(query): Query<NetworkQuery>,
+) -> Result<Json<TipResponse>, AppError> {
+    let chain = state.chain(query.network.as_deref())?;
+    let info = chain.rpc.call("getblockchaininfo", json!([])).await?;
     Ok(Json(TipResponse {
+        network: chain.key.into(),
         height: get_u64(&info, "blocks")?,
         hash: get_string(&info, "bestblockhash")?,
         chain: get_string(&info, "chain")?,
@@ -29,13 +34,21 @@ pub async fn tip(State(state): State<AppState>) -> Result<Json<TipResponse>, App
     }))
 }
 
-pub async fn mempool(State(state): State<AppState>) -> Result<Json<MempoolResponse>, AppError> {
-    let info = state.rpc.call("getmempoolinfo", json!([])).await?;
+pub async fn mempool(
+    State(state): State<AppState>,
+    Query(query): Query<NetworkQuery>,
+) -> Result<Json<MempoolResponse>, AppError> {
+    let chain = state.chain(query.network.as_deref())?;
+    let info = chain.rpc.call("getmempoolinfo", json!([])).await?;
+    let fee_bands = fee_bands(&chain.rpc).await;
     Ok(Json(MempoolResponse {
+        network: chain.key.into(),
         size: get_u64(&info, "size")?,
         bytes: get_u64(&info, "bytes")?,
         usage: get_u64(&info, "usage")?,
         min_fee_rate: info.get("mempoolminfee").and_then(Value::as_f64),
+        pressure: mempool_pressure(get_u64(&info, "size")?, get_u64(&info, "bytes")?),
+        fee_bands,
     }))
 }
 
@@ -43,17 +56,19 @@ pub async fn blocks(
     State(state): State<AppState>,
     Query(query): Query<BlocksQuery>,
 ) -> Result<Json<BlocksResponse>, AppError> {
-    let chain = state.rpc.call("getblockchaininfo", json!([])).await?;
-    let tip_height = get_u64(&chain, "blocks")?;
+    let chain = state.chain(query.network.as_deref())?;
+    let chain_info = chain.rpc.call("getblockchaininfo", json!([])).await?;
+    let tip_height = get_u64(&chain_info, "blocks")?;
     let limit = query.limit.unwrap_or(10).clamp(1, 50);
     let start = query.from_height.unwrap_or(tip_height).min(tip_height);
     let heights = (0..=start).rev().take(limit as usize);
     let rows =
-        try_join_all(heights.map(|height| block_summary_at_height(&state.rpc, height))).await?;
+        try_join_all(heights.map(|height| block_summary_at_height(&chain.rpc, height))).await?;
 
     let next_from_height = rows.last().and_then(|block| block.height.checked_sub(1));
 
     Ok(Json(BlocksResponse {
+        network: chain.key.into(),
         blocks: rows,
         next_from_height,
     }))
@@ -62,8 +77,10 @@ pub async fn blocks(
 pub async fn block_detail(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(query): Query<NetworkQuery>,
 ) -> Result<Json<BlockDetail>, AppError> {
-    let block = get_block_by_id(&state.rpc, &id, 1).await?;
+    let chain = state.chain(query.network.as_deref())?;
+    let block = get_block_by_id(&chain.rpc, &id, 1).await?;
     let txids = block
         .get("tx")
         .and_then(Value::as_array)
@@ -76,6 +93,7 @@ pub async fn block_detail(
         .unwrap_or_default();
 
     Ok(Json(BlockDetail {
+        network: chain.key.into(),
         height: get_u64(&block, "height")?,
         hash: get_string(&block, "hash")?,
         previous_block_hash: optional_string(&block, "previousblockhash"),
@@ -101,9 +119,10 @@ pub async fn block_transactions(
     Path(id): Path<String>,
     Query(query): Query<PageQuery>,
 ) -> Result<Json<BlockTransactionsResponse>, AppError> {
+    let chain = state.chain(query.network.as_deref())?;
     let limit = query.limit.unwrap_or(25).clamp(1, 100);
     let offset = query.offset.unwrap_or(0);
-    let block = get_block_by_id(&state.rpc, &id, 1).await?;
+    let block = get_block_by_id(&chain.rpc, &id, 1).await?;
     let block_hash = get_string(&block, "hash")?;
     let txids = block
         .get("tx")
@@ -119,9 +138,9 @@ pub async fn block_transactions(
         .collect::<Vec<_>>();
 
     let transactions = try_join_all(visible_txids.iter().map(|txid| {
-        state
+        chain
             .rpc
-            .call("getrawtransaction", json!([txid, true, block_hash]))
+            .call("getrawtransaction", json!([txid, true, block_hash.clone()]))
     }))
     .await?
     .iter()
@@ -129,12 +148,39 @@ pub async fn block_transactions(
     .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(BlockTransactionsResponse {
+        network: chain.key.into(),
         block: block_summary_from_json(&block)?,
         total: txids.len(),
         offset,
         limit,
         transactions,
     }))
+}
+
+async fn fee_bands(rpc: &RpcClient) -> FeeBands {
+    async fn estimate(rpc: &RpcClient, target: u64) -> Option<f64> {
+        rpc.call("estimatesmartfee", json!([target]))
+            .await
+            .ok()
+            .and_then(|value| value.get("feerate").and_then(Value::as_f64))
+            .map(|btc_per_kvb| (btc_per_kvb * 100_000_000.0) / 1000.0)
+    }
+
+    FeeBands {
+        low_sat_vb: estimate(rpc, 6).await,
+        medium_sat_vb: estimate(rpc, 3).await,
+        high_sat_vb: estimate(rpc, 1).await,
+    }
+}
+
+fn mempool_pressure(size: u64, bytes: u64) -> String {
+    match (size, bytes) {
+        (_, bytes) if bytes >= 250_000_000 => "very high".into(),
+        (_, bytes) if bytes >= 100_000_000 => "high".into(),
+        (size, _) if size >= 25_000 => "busy".into(),
+        (size, _) if size >= 5_000 => "normal".into(),
+        _ => "quiet".into(),
+    }
 }
 
 pub async fn block_hash(rpc: &RpcClient, height: u64) -> Result<String, AppError> {

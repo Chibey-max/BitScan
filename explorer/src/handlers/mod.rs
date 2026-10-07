@@ -40,6 +40,9 @@ pub(super) fn tx_output_from_json(output: &Value) -> TxOutput {
         n: output.get("n").and_then(Value::as_u64).unwrap_or_default(),
         value_sat: btc_to_sat(output.get("value").and_then(Value::as_f64).unwrap_or(0.0)),
         script_type: optional_string(script, "type"),
+        script_asm: optional_string(script, "asm"),
+        script_hex: optional_string(script, "hex"),
+        decoded_op_return: optional_string(script, "asm").and_then(|asm| decode_op_return(&asm)),
         address: optional_string(script, "address").or_else(|| {
             script
                 .get("addresses")
@@ -48,6 +51,7 @@ pub(super) fn tx_output_from_json(output: &Value) -> TxOutput {
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned)
         }),
+        spent: None,
     }
 }
 
@@ -95,4 +99,25 @@ pub(super) fn parse_address(value: &str) -> Option<Address<NetworkUnchecked>> {
 
 pub(super) fn is_bitcoin_address(value: &str) -> bool {
     parse_address(value).is_some()
+}
+
+pub(super) fn decode_op_return(asm: &str) -> Option<String> {
+    let payload = asm
+        .strip_prefix("OP_RETURN ")
+        .or_else(|| asm.strip_prefix("OP_FALSE OP_RETURN "))?;
+
+    let decoded = payload
+        .split_whitespace()
+        .filter_map(|part| hex::decode(part).ok())
+        .flatten()
+        .collect::<Vec<_>>();
+
+    if decoded.is_empty() {
+        return None;
+    }
+
+    String::from_utf8(decoded)
+        .ok()
+        .map(|text| text.chars().filter(|ch| !ch.is_control()).collect())
+        .filter(|text: &String| !text.is_empty())
 }

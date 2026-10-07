@@ -4,28 +4,38 @@ use serde::{Deserialize, Serialize};
 pub struct BlocksQuery {
     pub limit: Option<u64>,
     pub from_height: Option<u64>,
+    pub network: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct PageQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    pub network: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct AddressQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    pub network: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct SearchQuery {
     pub q: String,
+    pub network: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct TxQuery {
     pub block_hash: Option<String>,
+    pub network: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NetworkQuery {
+    pub network: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -33,11 +43,13 @@ pub struct HealthResponse {
     pub ok: bool,
     pub api: &'static str,
     pub rpc: bool,
+    pub networks: Vec<String>,
     pub message: String,
 }
 
 #[derive(Serialize)]
 pub struct TipResponse {
+    pub network: String,
     pub height: u64,
     pub hash: String,
     pub chain: String,
@@ -46,14 +58,25 @@ pub struct TipResponse {
 
 #[derive(Serialize)]
 pub struct MempoolResponse {
+    pub network: String,
     pub size: u64,
     pub bytes: u64,
     pub usage: u64,
     pub min_fee_rate: Option<f64>,
+    pub fee_bands: FeeBands,
+    pub pressure: String,
+}
+
+#[derive(Serialize)]
+pub struct FeeBands {
+    pub low_sat_vb: Option<f64>,
+    pub medium_sat_vb: Option<f64>,
+    pub high_sat_vb: Option<f64>,
 }
 
 #[derive(Serialize)]
 pub struct BlocksResponse {
+    pub network: String,
     pub blocks: Vec<BlockSummary>,
     pub next_from_height: Option<u64>,
 }
@@ -71,6 +94,7 @@ pub struct BlockSummary {
 
 #[derive(Serialize)]
 pub struct BlockDetail {
+    pub network: String,
     pub height: u64,
     pub hash: String,
     pub previous_block_hash: Option<String>,
@@ -89,6 +113,7 @@ pub struct BlockDetail {
 
 #[derive(Serialize)]
 pub struct BlockTransactionsResponse {
+    pub network: String,
     pub block: BlockSummary,
     pub total: usize,
     pub offset: usize,
@@ -100,13 +125,16 @@ pub struct BlockTransactionsResponse {
 pub struct TxSummary {
     pub txid: String,
     pub fee_sat: Option<i64>,
+    pub fee_rate_sat_vb: Option<f64>,
     pub input_count: usize,
     pub output_count: usize,
     pub output_value_sat: u64,
+    pub script_types: Vec<String>,
 }
 
 #[derive(Serialize)]
 pub struct TransactionDetail {
+    pub network: String,
     pub txid: String,
     pub hash: String,
     pub size: Option<u64>,
@@ -117,8 +145,28 @@ pub struct TransactionDetail {
     pub blockhash: Option<String>,
     pub confirmations: Option<u64>,
     pub fee_sat: Option<i64>,
+    pub fee_rate_sat_vb: Option<f64>,
+    pub fee_grade: FeeGrade,
+    pub summary: TxInsight,
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
+}
+
+#[derive(Serialize)]
+pub struct FeeGrade {
+    pub grade: String,
+    pub verdict: String,
+    pub target_blocks: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct TxInsight {
+    pub is_coinbase: bool,
+    pub has_op_return: bool,
+    pub input_total_sat: Option<u64>,
+    pub output_total_sat: u64,
+    pub script_types: Vec<String>,
+    pub explanation: String,
 }
 
 #[derive(Serialize)]
@@ -135,13 +183,19 @@ pub struct TxOutput {
     pub n: u64,
     pub value_sat: u64,
     pub script_type: Option<String>,
+    pub script_asm: Option<String>,
+    pub script_hex: Option<String>,
+    pub decoded_op_return: Option<String>,
     pub address: Option<String>,
+    pub spent: Option<bool>,
 }
 
 #[derive(Serialize)]
 pub struct AddressResponse {
+    pub network: String,
     pub address: String,
     pub is_valid: bool,
+    pub address_type: String,
     pub balance_sat: u64,
     pub received_sat: u64,
     pub sent_sat: u64,

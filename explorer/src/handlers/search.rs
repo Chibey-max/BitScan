@@ -19,9 +19,10 @@ pub async fn search(
     if q.is_empty() {
         return Err(AppError::BadRequest("search query cannot be empty".into()));
     }
+    let chain = state.chain(query.network.as_deref())?;
 
     if let Ok(height) = q.parse::<u64>() {
-        let hash = block_hash(&state.rpc, height).await?;
+        let hash = block_hash(&chain.rpc, height).await?;
         return Ok(Json(SearchResponse::Block {
             hash,
             height: Some(height),
@@ -34,7 +35,7 @@ pub async fn search(
         // do not confirm it with `getrawtransaction`, because that needs txindex
         // (or a block hash) and would turn every txid search into a dead end on
         // providers without it. The transaction page handles that limitation.
-        if let Ok(block) = state.rpc.call("getblock", json!([q, 1])).await {
+        if let Ok(block) = chain.rpc.call("getblock", json!([q, 1])).await {
             return Ok(Json(SearchResponse::Block {
                 hash: q.to_owned(),
                 height: block.get("height").and_then(Value::as_u64),
