@@ -13,6 +13,12 @@ pub struct PageQuery {
 }
 
 #[derive(Deserialize)]
+pub struct AddressQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Deserialize)]
 pub struct SearchQuery {
     pub q: String,
 }
@@ -136,18 +142,28 @@ pub struct TxOutput {
 pub struct AddressResponse {
     pub address: String,
     pub is_valid: bool,
-    pub script_pub_key: Option<String>,
     pub balance_sat: u64,
-    pub utxo_count: usize,
-    pub utxos: Vec<AddressUtxo>,
+    pub received_sat: u64,
+    pub sent_sat: u64,
+    pub pending_balance_sat: i64,
+    pub offset: usize,
+    pub limit: usize,
+    pub transactions: Vec<AddressTransaction>,
+    /// Which upstream answered, so the UI can be honest about provenance.
+    pub source: String,
 }
 
 #[derive(Serialize)]
-pub struct AddressUtxo {
+pub struct AddressTransaction {
     pub txid: String,
-    pub vout: u64,
-    pub height: Option<u64>,
-    pub value_sat: u64,
+    pub block_height: Option<u64>,
+    pub timestamp: Option<u64>,
+    pub fee_sat: Option<u64>,
+    /// Sum of this transaction's outputs paying the address. Exact.
+    pub received_sat: u64,
+    /// Whether the address appears among the inputs. The amount it spent is not
+    /// derivable without resolving every previous output, so it is not reported.
+    pub spends_from_address: bool,
 }
 
 #[derive(Serialize)]

@@ -3,6 +3,9 @@ pub mod health;
 pub mod search;
 pub mod transactions;
 
+use std::str::FromStr;
+
+use bitcoin::{Address, address::NetworkUnchecked};
 use serde_json::Value;
 
 use crate::error::AppError;
@@ -80,4 +83,16 @@ pub(super) fn btc_to_signed_sat(value: f64) -> i64 {
 
 pub(super) fn is_hex_hash(value: &str) -> bool {
     value.len() == 64 && hex::decode(value).is_ok()
+}
+
+/// Address validity is a pure property of the string — base58check or bech32
+/// checksum plus a network prefix — so it is decided locally. Asking the node
+/// (`validateaddress`) costs a round-trip and is refused outright by hosted RPC
+/// providers that allowlist methods.
+pub(super) fn parse_address(value: &str) -> Option<Address<NetworkUnchecked>> {
+    Address::from_str(value).ok()
+}
+
+pub(super) fn is_bitcoin_address(value: &str) -> bool {
+    parse_address(value).is_some()
 }

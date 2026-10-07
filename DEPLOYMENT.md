@@ -7,6 +7,8 @@ User browser
   -> Next.js frontend
     -> Rust Axum API
       -> Bitcoin Core / BitRPC JSON-RPC
+      -> optional indexed provider
+      -> Postgres provider cache
 ```
 
 The frontend and backend should not be deployed as one Vercel app. The Next.js app can run on Vercel, but the Rust API is a long-running Axum web server and should run on a backend host such as Render, Fly.io, Railway, or a VPS.
@@ -19,6 +21,7 @@ Use this setup for the simplest deployment:
 Frontend: Vercel
 Backend: Render
 Bitcoin RPC: BitRPC
+Provider cache: Render Postgres
 ```
 
 ## Deploy The Rust API On Render
@@ -39,9 +42,12 @@ Add these environment variables:
 BIND_ADDRESS=0.0.0.0:10000
 BITCOIN_RPC_URL=https://bitrpc.thebuidl.xyz/bitcoin
 BITCOIN_RPC_API_KEY=your_bitrpc_api_key
+TATUM_API_KEY=your_tatum_api_key
+TATUM_CACHE_TTL_SECONDS=300
+DATABASE_URL=postgres://user:password@host:5432/database
 ```
 
-Do not commit the real API key. Add it only in the Render dashboard.
+Do not commit real API keys or database URLs. Add them only in Render.
 
 Render web services must listen on `0.0.0.0`. The app currently reads its listen address from `BIND_ADDRESS`, so `0.0.0.0:10000` is the deployment value to use.
 
@@ -93,6 +99,8 @@ Vercel frontend
   -> NEXT_PUBLIC_API_BASE_URL
     -> Render Rust API
       -> BitRPC JSON-RPC
+      -> Tatum for indexed address/history data
+      -> Postgres cache for provider responses
 ```
 
 Examples:
@@ -111,9 +119,11 @@ Transaction page
 ## Important Notes
 
 - This app is currently RPC-backed, not indexer-backed.
-- There is no production database.
-- Address history is limited by the RPC provider.
+- Blocks and block-scoped transaction lookups come from BitRPC.
+- Address balances/history need the indexed provider because Bitcoin Core RPC has no address index by default.
+- Provider responses are cached in Postgres so repeat address/history/transaction fallback requests can survive rate limits and reduce provider calls.
 - BitRPC API keys must stay on the Rust backend only.
+- Tatum API keys must stay on the Rust backend only.
 - Never expose `BITCOIN_RPC_API_KEY` through the frontend.
 - Only `NEXT_PUBLIC_API_BASE_URL` belongs in the frontend environment.
 
@@ -125,6 +135,8 @@ Local backend:
 BIND_ADDRESS=127.0.0.1:3001
 BITCOIN_RPC_URL=https://bitrpc.thebuidl.xyz/bitcoin
 BITCOIN_RPC_API_KEY=your_bitrpc_api_key
+TATUM_API_KEY=your_tatum_api_key
+DATABASE_URL=postgres://user:password@localhost:5432/bitscan
 ```
 
 Production backend:
@@ -133,6 +145,9 @@ Production backend:
 BIND_ADDRESS=0.0.0.0:10000
 BITCOIN_RPC_URL=https://bitrpc.thebuidl.xyz/bitcoin
 BITCOIN_RPC_API_KEY=your_bitrpc_api_key
+TATUM_API_KEY=your_tatum_api_key
+TATUM_CACHE_TTL_SECONDS=300
+DATABASE_URL=postgres://user:password@host:5432/database
 ```
 
 Local frontend:

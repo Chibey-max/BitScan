@@ -4,6 +4,10 @@ pub struct Config {
     pub rpc_user: String,
     pub rpc_password: String,
     pub rpc_api_key: Option<String>,
+    pub tatum_api_key: Option<String>,
+    pub tatum_base_url: String,
+    pub tatum_cache_ttl_seconds: u64,
+    pub database_url: Option<String>,
 }
 
 impl Config {
@@ -15,9 +19,24 @@ impl Config {
             rpc_user: std::env::var("BITCOIN_RPC_USER").unwrap_or_else(|_| "bitcoin".into()),
             rpc_password: std::env::var("BITCOIN_RPC_PASSWORD")
                 .unwrap_or_else(|_| "bitcoin".into()),
-            rpc_api_key: std::env::var("BITCOIN_RPC_API_KEY")
+            rpc_api_key: non_empty("BITCOIN_RPC_API_KEY"),
+            // Address balances and history need an address-indexing provider; the
+            // node RPC alone cannot answer them. Tatum is optional: without a key
+            // the explorer still serves blocks, transactions, and search.
+            tatum_api_key: non_empty("TATUM_API_KEY"),
+            tatum_base_url: std::env::var("TATUM_BASE_URL")
+                .unwrap_or_else(|_| "https://api.tatum.io".into()),
+            tatum_cache_ttl_seconds: std::env::var("TATUM_CACHE_TTL_SECONDS")
                 .ok()
-                .filter(|value| !value.trim().is_empty()),
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(300),
+            database_url: non_empty("DATABASE_URL"),
         }
     }
+}
+
+fn non_empty(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
