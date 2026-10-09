@@ -176,15 +176,25 @@ pub async fn address(
         )));
     }
 
+    let limit = query.limit.unwrap_or(25).clamp(1, 50);
+    let offset = query.offset.unwrap_or(0);
+    let address_type = address_type(&address);
+
+    if let Some(indexer) = &state.indexer {
+        if let Some(response) = indexer
+            .address_response(chain.key, &address, address_type.clone(), limit, offset)
+            .await?
+        {
+            return Ok(Json(response));
+        }
+    }
+
     let indexer = chain.tatum.as_ref().ok_or_else(|| {
         AppError::NotFound(
-            "address balances need an address-indexing provider; set TATUM_API_KEY to enable them"
+            "address balances need an indexed provider; enable DATABASE_URL/INDEXER or set TATUM_API_KEY"
                 .into(),
         )
     })?;
-
-    let limit = query.limit.unwrap_or(25).clamp(1, 50);
-    let offset = query.offset.unwrap_or(0);
 
     let (balance, txs) = try_join(
         indexer.address_balance(&address),
@@ -200,7 +210,7 @@ pub async fn address(
     Ok(Json(AddressResponse {
         network: chain.key.into(),
         is_valid: true,
-        address_type: address_type(&address),
+        address_type,
         balance_sat: btc_string_to_sat(&balance.balance),
         received_sat: btc_string_to_sat(&balance.incoming),
         sent_sat: btc_string_to_sat(&balance.outgoing),

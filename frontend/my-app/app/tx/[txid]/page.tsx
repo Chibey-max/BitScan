@@ -109,7 +109,7 @@ export default async function TransactionPage({
             <Stat
               icon="currency_bitcoin"
               label="Output total"
-              value={formatBtcFromSats(totalOut)}
+              value={formatBtcFromSats(totalOut, network)}
             />
             <Stat
               icon="database"
@@ -146,38 +146,49 @@ export default async function TransactionPage({
             </dl>
           </section>
 
-          <section className="panel block-fullness-panel">
-            <div>
-              <p className="section-kicker">Fee intelligence</p>
-              <h2>Grade {tx.fee_grade?.grade ?? tx.fee_report?.grade ?? "n/a"}</h2>
-              <p>
-                {tx.fee_grade?.verdict ?? tx.fee_report?.verdict ?? "Fee rate unavailable."}{" "}
-                Fee rate: {formatFeeRate(tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb)}.
-              </p>
-              {tx.fee_grade?.target_blocks ? (
-                <p className="mt-2 text-sm text-[var(--muted)]">
-                  Suggested target: about {tx.fee_grade.target_blocks} block
-                  {tx.fee_grade.target_blocks === 1 ? "" : "s"}.
-                </p>
-              ) : null}
+          <section className="panel tx-intel-panel">
+            <div className="tx-intel-head">
+              <span className="tx-intel-icon"><MaterialIcon name="speed" /></span>
+              <div>
+                <p className="section-kicker">Fee intelligence</p>
+                <h2>Grade {tx.fee_grade?.grade ?? tx.fee_report?.grade ?? "n/a"}</h2>
+              </div>
+            </div>
+            <p className="tx-intel-copy">
+              {tx.fee_grade?.verdict ?? tx.fee_report?.verdict ?? "Fee rate unavailable."}
+            </p>
+            <div className="tx-intel-grid">
+              <MiniMetric label="Fee rate" value={formatFeeRate(tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb)} />
+              <MiniMetric
+                label="Target"
+                value={tx.fee_grade?.target_blocks ? `${tx.fee_grade.target_blocks} block${tx.fee_grade.target_blocks === 1 ? "" : "s"}` : "not available"}
+              />
             </div>
             <FeeStrip percentile={tx.fee_report?.percentile ?? null} feeRate={tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb} />
           </section>
 
           {tx.summary ? (
-            <section className="panel block-fullness-panel">
-              <div>
-                <p className="section-kicker">Transaction intelligence</p>
-                <h2>{tx.summary.is_coinbase ? "Coinbase transaction" : tx.summary.has_op_return ? "Data-carrying transaction" : "Standard spend"}</h2>
-                <p>{tx.summary.explanation}</p>
-                {tx.summary.script_types.length ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {tx.summary.script_types.map((type) => (
-                      <span key={type} className="flow-chip">{type}</span>
-                    ))}
-                  </div>
-                ) : null}
+            <section className="panel tx-intel-panel">
+              <div className="tx-intel-head">
+                <span className="tx-intel-icon"><MaterialIcon name="account_tree" /></span>
+                <div>
+                  <p className="section-kicker">Transaction intelligence</p>
+                  <h2>{tx.summary.is_coinbase ? "Coinbase transaction" : tx.summary.has_op_return ? "Data-carrying transaction" : "Standard spend"}</h2>
+                </div>
               </div>
+              <p className="tx-intel-copy">{tx.summary.explanation}</p>
+              <div className="tx-intel-grid">
+                <MiniMetric label="Inputs" value={inputs.length.toLocaleString("en-US")} />
+                <MiniMetric label="Outputs" value={outputs.length.toLocaleString("en-US")} />
+                <MiniMetric label="Total out" value={formatBtcFromSats(totalOut, network)} />
+              </div>
+              {tx.summary.script_types.length ? (
+                <div className="tx-chip-row">
+                  {tx.summary.script_types.map((type) => (
+                    <span key={type} className="flow-chip">{type}</span>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -219,7 +230,7 @@ export default async function TransactionPage({
                         <p className="text-sm text-[var(--muted)]">
                           Previous output:{" "}
                           {input.previous_output
-                            ? formatBtcFromSats(input.previous_output.value_sat)
+                            ? formatBtcFromSats(input.previous_output.value_sat, network)
                             : "not available from provider"}
                         </p>
                       </div>
@@ -233,7 +244,7 @@ export default async function TransactionPage({
                   <article key={output.n} className="flow-item output-item">
                     <div className="flow-output-head">
                       <span>Vout {output.n}</span>
-                      <strong>{formatBtcFromSats(output.value_sat)}</strong>
+                      <strong>{formatBtcFromSats(output.value_sat, network)}</strong>
                     </div>
                     {output.address ? (
                       <div className="mt-2 space-y-3">
@@ -272,6 +283,15 @@ export default async function TransactionPage({
         </div>
       </section>
     </main>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="tx-mini-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 

@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { NetworkKey, networkHref, networkLabel } from "@/app/lib/explorer";
+import NetworkSwitcher from "@/app/network-switcher";
 import SmartSearch from "@/app/smart-search";
 import ThemeToggle from "@/app/theme-toggle";
 
@@ -10,7 +12,6 @@ export default function SiteHeader({
   live?: boolean;
   network?: NetworkKey;
 }) {
-  const otherNetwork = network === "mainnet" ? "testnet" : "mainnet";
   return (
     <header className="site-header">
       <div className="site-header-inner">
@@ -22,18 +23,15 @@ export default function SiteHeader({
         </Link>
         <nav className="main-nav" aria-label="Main navigation">
           <Link href={networkHref("/#latest-blocks", network)}>Blocks</Link>
+          <Link href={networkHref("/transactions", network)}>Transactions</Link>
           <Link href={networkHref("/mempool", network)}>Mempool</Link>
         </nav>
         <SmartSearch network={network} />
         <div className="header-status"><span className={live ? "status-dot" : "status-dot status-dot-offline"} /><span>{live ? "Live" : "Demo"}</span></div>
         <ThemeToggle />
-        <Link
-          href={networkHref("/", otherNetwork)}
-          className="network-pill network-switch"
-          title={`Switch to ${networkLabel(otherNetwork)}`}
-        >
-          {networkLabel(network)}
-        </Link>
+        <Suspense fallback={<span className="network-pill">{networkLabel(network)}</span>}>
+          <NetworkSwitcher network={network} />
+        </Suspense>
       </div>
     </header>
   );

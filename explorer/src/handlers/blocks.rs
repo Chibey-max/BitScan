@@ -2,7 +2,6 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use futures::future::try_join_all;
 use serde_json::{Value, json};
 
 use crate::AppState;
@@ -62,8 +61,10 @@ pub async fn blocks(
     let limit = query.limit.unwrap_or(10).clamp(1, 50);
     let start = query.from_height.unwrap_or(tip_height).min(tip_height);
     let heights = (0..=start).rev().take(limit as usize);
-    let rows =
-        try_join_all(heights.map(|height| block_summary_at_height(&chain.rpc, height))).await?;
+    let mut rows = Vec::with_capacity(limit as usize);
+    for height in heights {
+        rows.push(block_summary_at_height(&chain.rpc, height).await?);
+    }
 
     let next_from_height = rows.last().and_then(|block| block.height.checked_sub(1));
 
@@ -81,6 +82,27 @@ pub async fn block_detail(
 ) -> Result<Json<BlockDetail>, AppError> {
     let chain = state.chain(query.network.as_deref())?;
     let block = get_block_by_id(&chain.rpc, &id, 1).await?;
+    let height = get_u64(&block, "height")?;
+    let timestamp = get_u64(&block, "time")?;
+    let previous_block_hash = optional_string(&block, "previousblockhash");
+    let time_since_previous_block_seconds =
+        if let Some(previous_hash) = previous_block_hash.as_deref() {
+            let previous_by_hash = chain.rpc.call("getblock", json!([previous_hash, 1])).await;
+            let previous_block = match previous_by_hash {
+                Ok(block) => Some(block),
+                Err(_) if height > 0 => block_summary_at_height(&chain.rpc, height - 1)
+                    .await
+                    .ok()
+                    .map(|summary| json!({ "time": summary.timestamp })),
+                Err(_) => None,
+            };
+
+            previous_block
+                .and_then(|previous_block| get_u64(&previous_block, "time").ok())
+                .and_then(|previous_timestamp| timestamp.checked_sub(previous_timestamp))
+        } else {
+            None
+        };
     let txids = block
         .get("tx")
         .and_then(Value::as_array)
@@ -94,11 +116,12 @@ pub async fn block_detail(
 
     Ok(Json(BlockDetail {
         network: chain.key.into(),
-        height: get_u64(&block, "height")?,
+        height,
         hash: get_string(&block, "hash")?,
-        previous_block_hash: optional_string(&block, "previousblockhash"),
+        previous_block_hash,
         next_block_hash: optional_string(&block, "nextblockhash"),
-        timestamp: get_u64(&block, "time")?,
+        timestamp,
+        time_since_previous_block_seconds,
         confirmations: block.get("confirmations").and_then(Value::as_u64),
         merkleroot: get_string(&block, "merkleroot")?,
         nonce: get_u64(&block, "nonce")?,
@@ -137,15 +160,14 @@ pub async fn block_transactions(
         .map(|txid| txid.to_owned())
         .collect::<Vec<_>>();
 
-    let transactions = try_join_all(visible_txids.iter().map(|txid| {
-        chain
+    let mut transactions = Vec::with_capacity(visible_txids.len());
+    for txid in &visible_txids {
+        let tx = chain
             .rpc
             .call("getrawtransaction", json!([txid, true, block_hash.clone()]))
-    }))
-    .await?
-    .iter()
-    .map(tx_summary)
-    .collect::<Result<Vec<_>, _>>()?;
+            .await?;
+        transactions.push(tx_summary(&tx)?);
+    }
 
     Ok(Json(BlockTransactionsResponse {
         network: chain.key.into(),

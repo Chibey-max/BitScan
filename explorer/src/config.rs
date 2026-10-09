@@ -14,6 +14,9 @@ pub struct Config {
     pub tatum_testnet_base_url: String,
     pub tatum_cache_ttl_seconds: u64,
     pub database_url: Option<String>,
+    pub indexer_enabled: bool,
+    pub indexer_lookback_blocks: u64,
+    pub indexer_poll_seconds: u64,
 }
 
 impl Config {
@@ -50,6 +53,17 @@ impl Config {
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(300),
             database_url: non_empty("DATABASE_URL"),
+            indexer_enabled: std::env::var("INDEXER_ENABLED")
+                .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
+                .unwrap_or(true),
+            indexer_lookback_blocks: std::env::var("INDEXER_LOOKBACK_BLOCKS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(24),
+            indexer_poll_seconds: std::env::var("INDEXER_POLL_SECONDS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(30),
         }
     }
 }

@@ -108,17 +108,17 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
             <Metric
               label="Balance"
               value={`${formatNumber(detail.balance_sat)} sats`}
-              secondary={formatBtcFromSats(detail.balance_sat)}
+              secondary={formatBtcFromSats(detail.balance_sat, network)}
             />
             <Metric
               label="Total received"
               value={`${formatNumber(detail.received_sat)} sats`}
-              secondary={formatBtcFromSats(detail.received_sat)}
+              secondary={formatBtcFromSats(detail.received_sat, network)}
             />
             <Metric
               label="Total sent"
               value={`${formatNumber(detail.sent_sat)} sats`}
-              secondary={formatBtcFromSats(detail.sent_sat)}
+              secondary={formatBtcFromSats(detail.sent_sat, network)}
             />
             <Metric
               label="Pending"
@@ -126,7 +126,7 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
               secondary={
                 detail.pending_balance_sat === 0
                   ? "nothing unconfirmed"
-                  : formatBtcFromSats(detail.pending_balance_sat)
+                  : formatBtcFromSats(detail.pending_balance_sat, network)
               }
             />
           </div>
@@ -183,7 +183,7 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
                     }
                     secondary={
                       tx.received_sat > 0
-                        ? formatBtcFromSats(tx.received_sat)
+                        ? formatBtcFromSats(tx.received_sat, network)
                         : undefined
                     }
                   />

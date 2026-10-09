@@ -42,6 +42,7 @@ export type BlockDetail = BlockSummary & {
   network?: NetworkKey;
   previous_block_hash?: string;
   next_block_hash?: string;
+  time_since_previous_block_seconds?: number;
   confirmations?: number;
   merkleroot: string;
   nonce: number;
@@ -193,7 +194,20 @@ export function withNetwork(path: string, network: NetworkKey) {
 }
 
 export function networkHref(path: string, network: NetworkKey) {
+  if (network === "mainnet") return path;
+  const hashIndex = path.indexOf("#");
+  if (hashIndex !== -1) {
+    const base = path.slice(0, hashIndex) || "/";
+    const hash = path.slice(hashIndex);
+    return `${withNetwork(base, network)}${hash}`;
+  }
   return withNetwork(path, network);
+}
+
+export function networkSource(network: NetworkKey) {
+  return network === "testnet"
+    ? "bitcoin-testnet.gateway.tatum.io"
+    : "bitrpc.thebuidl.xyz";
 }
 
 export class ApiError extends Error {
@@ -281,9 +295,31 @@ export function formatBytes(value?: number) {
   }).format(value);
 }
 
-export function formatBtcFromSats(value?: number) {
+export function formatBlockInterval(seconds?: number) {
+  if (seconds === undefined || seconds === null) return "pending";
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) {
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
+export function coinUnit(network: NetworkKey = "mainnet") {
+  return network === "testnet" ? "tBTC" : "BTC";
+}
+
+export function formatBtcFromSats(value?: number, network: NetworkKey = "mainnet") {
   if (value === undefined || value === null) return "pending";
-  return `${(value / 100_000_000).toFixed(8)} BTC`;
+  return `${(value / 100_000_000).toFixed(8)} ${coinUnit(network)}`;
 }
 
 export function formatFeeRate(value?: number) {
@@ -298,6 +334,7 @@ export function formatTime(timestamp: number) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZoneName: "short",
   }).format(new Date(timestamp * 1000));
 }
 
@@ -305,10 +342,33 @@ function plural(value: number, unit: string) {
   return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }
 
+function formatDurationWords(seconds: number) {
+  if (seconds < 60) return plural(seconds, "second");
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return plural(minutes, "minute");
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return plural(hours, "hour");
+  const days = Math.floor(hours / 24);
+  return plural(days, "day");
+}
+
+function formatDurationShort(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
 export function formatBlockAge(timestamp: number) {
   const then = new Date(timestamp * 1000);
   const now = new Date();
-  const seconds = Math.max(0, Math.floor((now.getTime() - then.getTime()) / 1000));
+  const rawSeconds = Math.floor((now.getTime() - then.getTime()) / 1000);
+  if (rawSeconds < 0) return `${formatDurationWords(Math.abs(rawSeconds))} ahead`;
+  const seconds = Math.max(0, rawSeconds);
 
   if (seconds < 60) return plural(seconds, "second") + " ago";
   const minutes = Math.floor(seconds / 60);
@@ -334,8 +394,10 @@ export function formatBlockAge(timestamp: number) {
   return `${plural(Math.max(1, months), "month")} ago`;
 }
 
-export function formatRelativeBlockTime(timestamp: number) {
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp * 1000) / 1000));
+export function formatRelativeBlockTime(timestamp: number, nowMs = Date.now()) {
+  const rawSeconds = Math.floor((nowMs - timestamp * 1000) / 1000);
+  if (rawSeconds < 0) return `${formatDurationShort(Math.abs(rawSeconds))} ahead`;
+  const seconds = Math.max(0, rawSeconds);
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;

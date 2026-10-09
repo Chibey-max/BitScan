@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import type { ReactNode } from "react";
 import CopyButton from "@/app/copy-button";
 import {
   BlockSummary,
@@ -7,14 +8,16 @@ import {
   NetworkKey,
   Tip,
   blockFullnessPercent,
+  coinUnit,
   compactHash,
   formatBytes,
   formatFeeRate,
-  formatRelativeBlockTime,
   networkHref,
   networkLabel,
+  networkSource,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
+import RelativeTime from "@/app/relative-time";
 import SiteHeader from "@/app/site-header";
 
 type ExplorerHomeProps = {
@@ -62,7 +65,7 @@ export default function ExplorerHome({
           </div>
           <div className="command-proof">
             <MaterialIcon name="crowdsource" />
-            <p>Data source: bitrpc.thebuidl.xyz.</p>
+            <p>Data source: {networkSource(network)}.</p>
             <div className="search-examples" aria-label="Search examples">
               <Link href={networkHref(`/block/${tip.height}`, network)}>#{tip.height.toLocaleString("en-US")}</Link>
               <Link href={networkHref(`/block/${tip.hash}`, network)}>{compactHash(tip.hash, 8, 6)}</Link>
@@ -102,7 +105,7 @@ export default function ExplorerHome({
             </div>
             <div className="tip-meta">
               <MetricMini label="Verification" value={`${((tip.verification_progress ?? 0) * 100).toFixed(2)}%`} />
-              <MetricMini label="Subsidy" value={`${subsidy.toFixed(3)} BTC`} />
+              <MetricMini label="Subsidy" value={`${subsidy.toFixed(3)} ${coinUnit(network)}`} />
               <MetricMini label="Network" value={networkLabel(network)} />
             </div>
             {latestBlock ? (
@@ -112,7 +115,7 @@ export default function ExplorerHome({
                   <strong>{latestFullness === undefined ? "pending" : `${latestFullness.toFixed(1)}% full`}</strong>
                   <span>
                     {latestBlock.tx_count.toLocaleString("en-US")} txs .{" "}
-                    {formatBytes(latestBlock.weight)} WU . mined {formatRelativeBlockTime(latestBlock.timestamp)}
+                    {formatBytes(latestBlock.weight)} WU . mined <RelativeTime timestamp={latestBlock.timestamp} />
                   </span>
                 </div>
                 <BlockFillBar percent={latestFullness} large />
@@ -140,7 +143,7 @@ export default function ExplorerHome({
               icon="currency_bitcoin"
               label="Block subsidy"
               value={subsidy.toFixed(3)}
-              suffix="BTC"
+              suffix={coinUnit(network)}
               detail={`Era ${Math.floor(tip.height / 210_000) + 1} reward`}
             />
           </div>
@@ -220,7 +223,7 @@ export default function ExplorerHome({
                   {compactHash(latestBlock.hash, 12, 10)}
                 </Link>
                 <div className="last-block-stats">
-                  <MetricMini label="Mined" value={formatRelativeBlockTime(latestBlock.timestamp)} />
+                  <MetricMini label="Mined" value={<RelativeTime timestamp={latestBlock.timestamp} />} />
                   <MetricMini label="Txs" value={latestBlock.tx_count.toLocaleString("en-US")} />
                 </div>
               </section>
@@ -263,7 +266,7 @@ function MetricCard({
   );
 }
 
-function MetricMini({ label, value }: { label: string; value: string }) {
+function MetricMini({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="metric-mini">
       <span>{label}</span>
@@ -285,7 +288,7 @@ function BlockRow({ block, newest, network }: { block: BlockSummary; newest: boo
         {newest ? <small>NEW</small> : null}
       </span>
       <span className="mono" data-label="Hash">{compactHash(block.hash, 12, 8)}</span>
-      <span data-label="Mined">{formatRelativeBlockTime(block.timestamp)}</span>
+      <span data-label="Mined"><RelativeTime timestamp={block.timestamp} /></span>
       <span className="number" data-label="Txs">{block.tx_count.toLocaleString("en-US")}</span>
       <span className="block-fill-cell" data-label="Full">
         <BlockFillBar percent={fullness} compact />

@@ -100,6 +100,7 @@ pub struct BlockDetail {
     pub previous_block_hash: Option<String>,
     pub next_block_hash: Option<String>,
     pub timestamp: u64,
+    pub time_since_previous_block_seconds: Option<u64>,
     pub confirmations: Option<u64>,
     pub merkleroot: String,
     pub nonce: u64,

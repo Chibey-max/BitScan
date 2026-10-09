@@ -63,7 +63,7 @@ pub(super) fn get_string(value: &Value, key: &str) -> Result<String, AppError> {
         .ok_or_else(|| AppError::Rpc(format!("missing string field `{key}`")))
 }
 
-pub(super) fn optional_string(value: &Value, key: &str) -> Option<String> {
+pub(crate) fn optional_string(value: &Value, key: &str) -> Option<String> {
     value
         .get(key)
         .and_then(Value::as_str)
@@ -77,7 +77,7 @@ pub(super) fn get_u64(value: &Value, key: &str) -> Result<u64, AppError> {
         .ok_or_else(|| AppError::Rpc(format!("missing numeric field `{key}`")))
 }
 
-pub(super) fn btc_to_sat(value: f64) -> u64 {
+pub(crate) fn btc_to_sat(value: f64) -> u64 {
     (value * 100_000_000.0).round() as u64
 }
 

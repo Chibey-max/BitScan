@@ -41,6 +41,10 @@ impl PersistentCache {
         Ok(Self { pool })
     }
 
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
+    }
+
     pub async fn fresh<T>(&self, key: &str) -> Option<T>
     where
         T: DeserializeOwned,

@@ -98,7 +98,7 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
               {settled ? "Payment settled" : confirmations > 0 ? "Payment confirmed" : "Payment pending"}
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-              {formatBtcFromSats(amount)} was observed in this {networkLabel(network)} transaction.
+              {formatBtcFromSats(amount, network)} was observed in this {networkLabel(network)} transaction.
             </p>
           </div>
         </header>
@@ -106,7 +106,7 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
         <div className="grid gap-5 py-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
           <section className="panel p-6">
             <div className="grid gap-4 sm:grid-cols-3">
-              <Metric label="Amount" value={formatBtcFromSats(amount)} />
+              <Metric label="Amount" value={formatBtcFromSats(amount, network)} />
               <Metric label="Confirmations" value={formatNumber(confirmations)} />
               <Metric label="Confidence" value={`${confidence}%`} />
             </div>

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
 import ErrorState from "@/app/error-state";
@@ -9,7 +9,7 @@ import {
   blockFullnessPercent,
   errorMessage,
   formatBtcFromSats,
-  formatBlockAge,
+  formatBlockInterval,
   formatBytes,
   formatFeeRate,
   formatNumber,
@@ -21,6 +21,7 @@ import {
   withNetwork,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
+import RelativeTime from "@/app/relative-time";
 
 export const dynamic = "force-dynamic";
 
@@ -105,9 +106,15 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
           </Link>
           <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">
-                Block {block.height.toLocaleString("en-US")}
-              </h1>
+              <div className="block-title-line">
+                <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">
+                  Block {block.height.toLocaleString("en-US")}
+                </h1>
+                <span className="block-age-chip">
+                  <RelativeTime timestamp={block.timestamp} variant="long" />
+                </span>
+                <span className="flow-chip">{block.confirmations ? "confirmed" : "mempool"}</span>
+              </div>
               <div className="hash-line">
                 <Link href={networkHref(`/block/${block.hash}`, network)} className="entity-link mono">
                   {block.hash}
@@ -153,9 +160,10 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                 sub="bytes"
               />
               <Stat
-                icon="deployed_code"
-                label="Confirmations"
-                value={formatNumber(block.confirmations)}
+                icon="schedule"
+                label="Time since last block"
+                value={formatBlockInterval(block.time_since_previous_block_seconds)}
+                sub={block.previous_block_hash ? "from previous block" : "genesis block"}
               />
               <Stat
                 icon="battery_horiz_075"
@@ -193,9 +201,10 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               <dl className="mt-4 space-y-4 text-sm">
                 <Detail
                   label="Time"
-                  value={formatBlockAge(block.timestamp)}
-                  sub={formatTime(block.timestamp)}
+                  value={formatTime(block.timestamp)}
+                  sub="block header timestamp"
                 />
+                <Detail label="Confirmations" value={formatNumber(block.confirmations)} />
                 <Detail label="Merkle root" value={block.merkleroot} mono copy />
                 <Detail label="Bits" value={block.bits} mono />
                 <Detail label="Nonce" value={block.nonce.toString()} mono />
@@ -214,7 +223,7 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               <p className="text-sm text-[var(--muted)]">
                 Showing {totalTxCount === 0 ? 0 : offset + 1}-{offset + visibleTxCount} of{" "}
                 {totalTxCount.toLocaleString("en-US")} transactions.
-                {txs ? " Click a row to inspect inputs and outputs." : " Provider summaries are unavailable, so raw txids are shown."}
+                {txs ? " Click a row to inspect inputs and outputs." : " Open any txid to inspect the transaction."}
               </p>
             </div>
             {txsError ? (
@@ -260,15 +269,19 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                             Value
                           </p>
                           <p className="mt-1 font-mono text-sm font-semibold">
-                            {formatBtcFromSats(tx.output_value_sat)}
+                            {formatBtcFromSats(tx.output_value_sat, network)}
                           </p>
                           <p className="mt-1 font-mono text-xs text-[var(--muted)]">
                             {formatFeeRate(tx.fee_rate_sat_vb)}
                           </p>
                           {tx.script_types?.length ? (
-                            <p className="mt-1 text-xs text-[var(--muted)]">
-                              {tx.script_types.slice(0, 2).join(", ")}
-                            </p>
+                            <div className="tx-script-tags" aria-label="Transaction script types">
+                              {tx.script_types.slice(0, 3).map((type) => (
+                                <span key={type} className="flow-chip tx-script-chip">
+                                  {type}
+                                </span>
+                              ))}
+                            </div>
                           ) : null}
                         </div>
                       </Link>
@@ -291,10 +304,10 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
                         </div>
                         <div className="tx-value">
                           <p className="text-xs font-semibold uppercase text-[var(--muted)]">
-                            Status
+                            Details
                           </p>
                           <p className="mt-1 font-mono text-sm font-semibold">
-                            summary unavailable
+                            open transaction
                           </p>
                         </div>
                       </Link>
@@ -408,8 +421,8 @@ function Detail({
   copy = false,
 }: {
   label: string;
-  value: string;
-  sub?: string;
+  value: ReactNode;
+  sub?: ReactNode;
   mono?: boolean;
   copy?: boolean;
 }) {
@@ -431,7 +444,7 @@ function Detail({
             </span>
           ) : null}
         </span>
-        {copy ? <CopyButton value={value} label={`Copy ${label}`} compact /> : null}
+        {copy && typeof value === "string" ? <CopyButton value={value} label={`Copy ${label}`} compact /> : null}
       </dd>
     </div>
   );

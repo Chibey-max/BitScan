@@ -8,6 +8,7 @@ mod cache;
 mod config;
 mod error;
 mod handlers;
+mod indexer;
 mod model;
 mod routes;
 mod rpc;
@@ -15,6 +16,7 @@ mod tatum;
 
 use cache::PersistentCache;
 use config::Config;
+use indexer::{Indexer, IndexerChain};
 use rpc::RpcClient;
 use tatum::TatumClient;
 
@@ -22,6 +24,7 @@ use tatum::TatumClient;
 pub struct AppState {
     pub mainnet: ChainState,
     pub testnet: Option<ChainState>,
+    pub indexer: Option<Arc<Indexer>>,
 }
 
 #[derive(Clone)]
@@ -81,6 +84,27 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+    let indexer = if config.indexer_enabled {
+        match persistent_cache.as_ref() {
+            Some(cache) => match Indexer::connect(cache.pool()).await {
+                Ok(indexer) => {
+                    tracing::info!("Postgres block/address indexer is enabled");
+                    Some(Arc::new(indexer))
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Postgres indexer is unavailable");
+                    None
+                }
+            },
+            None => {
+                tracing::warn!("DATABASE_URL is not set; block/address indexer is disabled");
+                None
+            }
+        }
+    } else {
+        tracing::info!("block/address indexer is disabled by INDEXER_ENABLED");
+        None
+    };
 
     let mainnet_tatum = config.tatum_api_key.map(|api_key| {
         Arc::new(TatumClient::new(
@@ -88,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
             config.tatum_base_url,
             api_key,
             config.tatum_cache_ttl_seconds,
-            persistent_cache,
+            persistent_cache.clone(),
         ))
     });
     if mainnet_tatum.is_none() {
@@ -103,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
             config.tatum_testnet_base_url,
             api_key,
             config.tatum_cache_ttl_seconds,
-            None,
+            persistent_cache.clone(),
         ))
     });
     let testnet = config.testnet_rpc_url.map(|rpc_url| ChainState {
@@ -115,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
             config.testnet_rpc_user,
             config.testnet_rpc_password,
             config.testnet_rpc_api_key,
+            persistent_cache.clone(),
         )),
         tatum: testnet_tatum,
     });
@@ -134,11 +159,31 @@ async fn main() -> anyhow::Result<()> {
                 config.rpc_user,
                 config.rpc_password,
                 config.rpc_api_key,
+                persistent_cache.clone(),
             )),
             tatum: mainnet_tatum,
         },
         testnet,
+        indexer: indexer.clone(),
     };
+
+    if let Some(indexer) = indexer {
+        let mut chains = vec![IndexerChain {
+            key: state.mainnet.key,
+            rpc: state.mainnet.rpc.clone(),
+        }];
+        if let Some(testnet) = &state.testnet {
+            chains.push(IndexerChain {
+                key: testnet.key,
+                rpc: testnet.rpc.clone(),
+            });
+        }
+        indexer.spawn_recent_sync(
+            chains,
+            config.indexer_lookback_blocks,
+            config.indexer_poll_seconds,
+        );
+    }
 
     let app = routes::app(state);
     let addr = SocketAddr::from_str(&config.bind_addr)?;
