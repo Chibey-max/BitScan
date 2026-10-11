@@ -1,7 +1,9 @@
 import type { CSSProperties, ReactNode } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 import SiteHeader from "@/app/site-header";
 import {
   BlockDetail,
@@ -17,13 +19,15 @@ import {
   getJson,
   isNetworkUnavailable,
   networkHref,
+  NetworkKey,
+  REVALIDATE,
   normalizeNetwork,
   withNetwork,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import RelativeTime from "@/app/relative-time";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -40,9 +44,33 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
   const { offset: offsetParam, network: networkParam } = await searchParams;
   const network = normalizeNetwork(networkParam);
   const offset = offsetParam && /^\d+$/.test(offsetParam) ? Number(offsetParam) : 0;
+
+  return (
+    <Suspense key={`${network}:${id}:${offset}`} fallback={<Loading />}>
+      <BlockView id={id} network={network} offset={offset} />
+    </Suspense>
+  );
+}
+
+async function BlockView({
+  id,
+  network,
+  offset,
+}: {
+  id: string;
+  network: NetworkKey;
+  offset: number;
+}) {
+  // Only the header is awaited here. The transaction list fetches inside its
+  // own Suspense boundary, so the header paints as soon as it resolves instead
+  // of waiting on the much slower per-transaction fan-out.
+  const blockPromise = getJson<BlockDetail>(
+    withNetwork(`/api/block/${encodeURIComponent(id)}`, network),
+    REVALIDATE.immutable,
+  );
   let block: BlockDetail;
   try {
-    block = await getJson<BlockDetail>(withNetwork(`/api/block/${encodeURIComponent(id)}`, network));
+    block = await blockPromise;
   } catch (error) {
     if (isNetworkUnavailable(error)) {
       return (
@@ -68,28 +96,6 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
     );
   }
 
-  let txs: BlockTransactions | undefined;
-  let txsError: string | undefined;
-  try {
-    txs = await getJson<BlockTransactions>(
-      withNetwork(
-        `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
-        network,
-      ),
-    );
-  } catch (error) {
-    txsError = errorMessage(
-      error,
-      "Transaction summaries are not available from the provider for this block.",
-    );
-  }
-  const fallbackTxids = block.txids.slice(offset, offset + TX_PAGE_SIZE);
-  const visibleTxCount = txs?.transactions.length ?? fallbackTxids.length;
-  const totalTxCount = txs?.total ?? block.tx_count;
-  const previousOffset = Math.max(0, offset - TX_PAGE_SIZE);
-  const nextOffset = offset + visibleTxCount;
-  const hasPrevious = offset > 0;
-  const hasNext = offset + visibleTxCount < totalTxCount;
   const fullness = blockFullnessPercent(block.weight);
 
   return (
@@ -217,6 +223,184 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
             </section>
           </aside>
 
+          <Suspense fallback={<TxListSkeleton />}>
+            <BlockTxPanel
+              id={id}
+              network={network}
+              offset={offset}
+              blockHash={block.hash}
+              blockTxids={block.txids}
+              blockTxCount={block.tx_count}
+            />
+          </Suspense>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function Stat({
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
+      <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-md bg-[var(--surface-2)] text-[var(--accent)]">
+        <MaterialIcon name={icon} />
+      </div>
+      <p className="text-sm font-medium text-[var(--muted)]">{label}</p>
+      <p className="mt-2 font-mono text-xl font-semibold">{value}</p>
+      {sub ? <p className="text-xs text-[var(--muted)]">{sub}</p> : null}
+    </section>
+  );
+}
+
+function BlockFillBar({ percent }: { percent?: number }) {
+  const safePercent = percent ?? 0;
+  const label = percent === undefined ? "pending" : `${percent.toFixed(1)}%`;
+  return (
+    <div className="block-fill block-fill-large">
+      <div className="block-fill-header">
+        <span>Block filling</span>
+        <strong>{label}</strong>
+      </div>
+      <span className="block-fill-track" aria-label={`Block filling ${label}`}>
+        <span style={{ width: `${safePercent}%` }} />
+      </span>
+    </div>
+  );
+}
+
+function BlockCapacityMap({ percent }: { percent?: number }) {
+  const safePercent = Math.min(100, Math.max(0, percent ?? 0));
+  const cellCapacity = 100 / CAPACITY_GRID_CELLS;
+
+  return (
+    <div
+      className="block-capacity-map"
+      aria-label={`Block capacity ${percent === undefined ? "pending" : `${percent.toFixed(2)}% full`}`}
+      role="img"
+    >
+      {Array.from({ length: CAPACITY_GRID_CELLS }, (_, index) => {
+        const row = Math.floor(index / CAPACITY_GRID_COLUMNS);
+        const column = index % CAPACITY_GRID_COLUMNS;
+        const fillOrder = (CAPACITY_GRID_ROWS - 1 - row) * CAPACITY_GRID_COLUMNS + column;
+        const cellStart = fillOrder * cellCapacity;
+        const cellFill = Math.min(100, Math.max(0, ((safePercent - cellStart) / cellCapacity) * 100));
+
+        return (
+          <span
+            key={index}
+            className="block-capacity-cell"
+            style={{ "--cell-fill": `${cellFill}%` } as CSSProperties}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function Detail({
+  label,
+  value,
+  sub,
+  mono = false,
+  copy = false,
+}: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  mono?: boolean;
+  copy?: boolean;
+}) {
+  return (
+    <div>
+      <dt className="text-xs font-semibold uppercase text-[var(--muted)]">
+        {label}
+      </dt>
+      <dd
+        className={`mt-1 flex items-start gap-2 break-all text-[var(--text)] ${
+          mono ? "font-mono text-xs" : "text-sm"
+        }`}
+      >
+        <span>
+          {value}
+          {sub ? (
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              {sub}
+            </span>
+          ) : null}
+        </span>
+        {copy && typeof value === "string" ? <CopyButton value={value} label={`Copy ${label}`} compact /> : null}
+      </dd>
+    </div>
+  );
+}
+
+function TxListSkeleton() {
+  return (
+    <section className="panel detail-panel lg:col-span-2">
+      <div className="panel-heading detail-panel-heading">
+        <h2 className="text-xl font-semibold">Transactions</h2>
+        <p className="text-sm text-[var(--muted)]">Resolving transaction summaries…</p>
+      </div>
+      <div className="tx-list">
+        <div className="skeleton skeleton-table" />
+      </div>
+    </section>
+  );
+}
+
+async function BlockTxPanel({
+  id,
+  network,
+  offset,
+  blockHash,
+  blockTxids,
+  blockTxCount,
+}: {
+  id: string;
+  network: NetworkKey;
+  offset: number;
+  blockHash: string;
+  blockTxids: string[];
+  blockTxCount: number;
+}) {
+  const block = { hash: blockHash, txids: blockTxids, tx_count: blockTxCount };
+
+  let txs: BlockTransactions | undefined;
+  let txsError: string | undefined;
+  try {
+    txs = await getJson<BlockTransactions>(
+      withNetwork(
+        `/api/block/${encodeURIComponent(id)}/txs?limit=${TX_PAGE_SIZE}&offset=${offset}`,
+        network,
+      ),
+      REVALIDATE.immutable,
+    );
+  } catch (error) {
+    txsError = errorMessage(
+      error,
+      "Transaction summaries are not available from the provider for this block.",
+    );
+  }
+
+  const fallbackTxids = block.txids.slice(offset, offset + TX_PAGE_SIZE);
+  const visibleTxCount = txs?.transactions.length ?? fallbackTxids.length;
+  const totalTxCount = txs?.total ?? block.tx_count;
+  const previousOffset = Math.max(0, offset - TX_PAGE_SIZE);
+  const nextOffset = offset + visibleTxCount;
+  const hasPrevious = offset > 0;
+  const hasNext = offset + visibleTxCount < totalTxCount;
+
+  return (
           <section className="panel detail-panel lg:col-span-2">
             <div className="panel-heading detail-panel-heading">
               <h2 className="text-xl font-semibold">Transactions</h2>
@@ -339,113 +523,5 @@ export default async function BlockPage({ params, searchParams }: PageProps) {
               </div>
             </div>
           </section>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function Stat({
-  icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
-      <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-md bg-[var(--surface-2)] text-[var(--accent)]">
-        <MaterialIcon name={icon} />
-      </div>
-      <p className="text-sm font-medium text-[var(--muted)]">{label}</p>
-      <p className="mt-2 font-mono text-xl font-semibold">{value}</p>
-      {sub ? <p className="text-xs text-[var(--muted)]">{sub}</p> : null}
-    </section>
-  );
-}
-
-function BlockFillBar({ percent }: { percent?: number }) {
-  const safePercent = percent ?? 0;
-  const label = percent === undefined ? "pending" : `${percent.toFixed(1)}%`;
-  return (
-    <div className="block-fill block-fill-large">
-      <div className="block-fill-header">
-        <span>Block filling</span>
-        <strong>{label}</strong>
-      </div>
-      <span className="block-fill-track" aria-label={`Block filling ${label}`}>
-        <span style={{ width: `${safePercent}%` }} />
-      </span>
-    </div>
-  );
-}
-
-function BlockCapacityMap({ percent }: { percent?: number }) {
-  const safePercent = Math.min(100, Math.max(0, percent ?? 0));
-  const cellCapacity = 100 / CAPACITY_GRID_CELLS;
-
-  return (
-    <div
-      className="block-capacity-map"
-      aria-label={`Block capacity ${percent === undefined ? "pending" : `${percent.toFixed(2)}% full`}`}
-      role="img"
-    >
-      {Array.from({ length: CAPACITY_GRID_CELLS }, (_, index) => {
-        const row = Math.floor(index / CAPACITY_GRID_COLUMNS);
-        const column = index % CAPACITY_GRID_COLUMNS;
-        const fillOrder = (CAPACITY_GRID_ROWS - 1 - row) * CAPACITY_GRID_COLUMNS + column;
-        const cellStart = fillOrder * cellCapacity;
-        const cellFill = Math.min(100, Math.max(0, ((safePercent - cellStart) / cellCapacity) * 100));
-
-        return (
-          <span
-            key={index}
-            className="block-capacity-cell"
-            style={{ "--cell-fill": `${cellFill}%` } as CSSProperties}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function Detail({
-  label,
-  value,
-  sub,
-  mono = false,
-  copy = false,
-}: {
-  label: string;
-  value: ReactNode;
-  sub?: ReactNode;
-  mono?: boolean;
-  copy?: boolean;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-semibold uppercase text-[var(--muted)]">
-        {label}
-      </dt>
-      <dd
-        className={`mt-1 flex items-start gap-2 break-all text-[var(--text)] ${
-          mono ? "font-mono text-xs" : "text-sm"
-        }`}
-      >
-        <span>
-          {value}
-          {sub ? (
-            <span className="mt-1 block text-xs text-[var(--muted)]">
-              {sub}
-            </span>
-          ) : null}
-        </span>
-        {copy && typeof value === "string" ? <CopyButton value={value} label={`Copy ${label}`} compact /> : null}
-      </dd>
-    </div>
   );
 }

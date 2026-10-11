@@ -144,9 +144,11 @@ export type AddressTransaction = {
   fee_sat?: number;
   // Sum of this transaction's outputs paying the address.
   received_sat: number;
-  // The address appears among the inputs; the amount it spent is not derivable
-  // from the indexer's response, so it is not reported per transaction.
   spends_from_address: boolean;
+  // What this address spent in the transaction. Only the local index can
+  // answer this (the provider returns input addresses as null), so it is
+  // absent for transactions outside the indexed window.
+  sent_sat?: number | null;
 };
 
 // Mirrors the Rust `AddressResponse`: totals from the address indexer's balance
@@ -160,6 +162,9 @@ export type AddressDetail = {
   received_sat: number;
   sent_sat: number;
   pending_balance_sat: number;
+  // False when the totals cover only a recent window rather than the address's
+  // whole history — the local fallback indexer keeps just the last N blocks.
+  totals_complete: boolean;
   offset: number;
   limit: number;
   transactions: AddressTransaction[];
@@ -222,10 +227,29 @@ export class ApiError extends Error {
   }
 }
 
-export async function getJson<T>(path: string): Promise<T> {
+/**
+ * Seconds of staleness allowed per request. Next's data cache is keyed on the
+ * URL, so repeat navigation to the same view is served without touching the
+ * API at all. Chain data only changes every ~10 minutes, so a few seconds is
+ * invisible — and the pages must NOT set `dynamic = "force-dynamic"`, which
+ * silently rewrites every fetch to `no-store` and defeats this.
+ */
+export const REVALIDATE = {
+  /** Tip height and mempool: visibly live, so keep it short. */
+  live: 10,
+  /** Confirmed blocks and transactions are immutable once buried. */
+  immutable: 300,
+  /** Address balances move whenever a new block lands. */
+  address: 30,
+} as const;
+
+export async function getJson<T>(
+  path: string,
+  revalidate: number = REVALIDATE.live,
+): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { accept: "application/json" },
-    cache: "no-store",
+    next: { revalidate },
   });
 
   if (!response.ok) {

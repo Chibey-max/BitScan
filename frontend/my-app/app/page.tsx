@@ -1,8 +1,11 @@
+import { Suspense } from "react";
 import ExplorerHome from "@/app/explorer-home";
 import {
   BlockSummary,
   BlocksResponse,
   Mempool,
+  NetworkKey,
+  REVALIDATE,
   Tip,
   getJson,
   isNetworkUnavailable,
@@ -10,8 +13,11 @@ import {
   withNetwork,
 } from "@/app/lib/explorer";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 
-export const dynamic = "force-dynamic";
+// Deliberately NOT `force-dynamic`: that rewrites every fetch to `no-store`
+// and defeats the data cache. Awaiting `searchParams` already makes this page
+// render per request.
 
 const demoTip: Tip = {
   height: 969_024,
@@ -60,6 +66,23 @@ export default async function Page({ searchParams }: PageProps) {
   const { from_height, network: networkParam } = await searchParams;
   const network = normalizeNetwork(networkParam);
   const fromHeight = from_height && /^\d+$/.test(from_height) ? Number(from_height) : undefined;
+
+  // The shell and skeleton stream immediately; the panels arrive when the API
+  // answers, instead of the browser waiting on a blank response.
+  return (
+    <Suspense key={`${network}:${fromHeight ?? "tip"}`} fallback={<Loading />}>
+      <HomePanels network={network} fromHeight={fromHeight} />
+    </Suspense>
+  );
+}
+
+async function HomePanels({
+  network,
+  fromHeight,
+}: {
+  network: NetworkKey;
+  fromHeight?: number;
+}) {
   let state: "live" | "demo" = "demo";
   let tip = demoTip;
   let mempool = demoMempool;
@@ -68,13 +91,14 @@ export default async function Page({ searchParams }: PageProps) {
 
   try {
     const [nextTip, nextMempool, blockPage] = await Promise.all([
-      getJson<Tip>(withNetwork("/api/tip", network)),
-      getJson<Mempool>(withNetwork("/api/mempool", network)),
+      getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live),
+      getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live),
       getJson<BlocksResponse>(
         withNetwork(
           `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
           network,
         ),
+        REVALIDATE.live,
       ),
     ]);
     state = "live";

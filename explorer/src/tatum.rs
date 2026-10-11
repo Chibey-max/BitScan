@@ -42,6 +42,12 @@ pub struct TatumBalance {
     pub outgoing_pending: String,
 }
 
+/// Per-cache entry cap. Address history responses are large (Tatum includes
+/// the raw transaction hex), and entries survive their TTL so the stale
+/// fallback can use them, so an unbounded map would grow with every distinct
+/// address a visitor looks up.
+const MAX_ENTRIES: usize = 512;
+
 struct TimedCache<T> {
     items: Mutex<HashMap<String, CacheEntry<T>>>,
 }
@@ -49,6 +55,7 @@ struct TimedCache<T> {
 struct CacheEntry<T> {
     value: T,
     stored_at: Instant,
+    last_used: Instant,
 }
 
 impl<T: Clone> TimedCache<T> {
@@ -59,35 +66,45 @@ impl<T: Clone> TimedCache<T> {
     }
 
     fn fresh(&self, key: &str, ttl: Duration) -> Option<T> {
-        self.items
-            .lock()
-            .ok()
-            .and_then(|items| {
-                items
-                    .get(key)
-                    .filter(|entry| entry.stored_at.elapsed() <= ttl)
-                    .cloned()
-            })
-            .map(|entry| entry.value)
+        let mut items = self.items.lock().ok()?;
+        let entry = items.get_mut(key)?;
+        if entry.stored_at.elapsed() > ttl {
+            return None;
+        }
+        entry.last_used = Instant::now();
+        Some(entry.value.clone())
     }
 
     fn stale(&self, key: &str) -> Option<T> {
-        self.items
-            .lock()
-            .ok()
-            .and_then(|items| items.get(key).cloned())
-            .map(|entry| entry.value)
+        let mut items = self.items.lock().ok()?;
+        let entry = items.get_mut(key)?;
+        entry.last_used = Instant::now();
+        Some(entry.value.clone())
     }
 
     fn insert(&self, key: String, value: T) {
         if let Ok(mut items) = self.items.lock() {
+            let now = Instant::now();
             items.insert(
                 key,
                 CacheEntry {
                     value,
-                    stored_at: Instant::now(),
+                    stored_at: now,
+                    last_used: now,
                 },
             );
+            while items.len() > MAX_ENTRIES {
+                let oldest = items
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.last_used)
+                    .map(|(key, _)| key.clone());
+                match oldest {
+                    Some(key) => {
+                        items.remove(&key);
+                    }
+                    None => break,
+                }
+            }
         }
     }
 }
@@ -97,6 +114,7 @@ impl<T: Clone> Clone for CacheEntry<T> {
         Self {
             value: self.value.clone(),
             stored_at: self.stored_at,
+            last_used: self.last_used,
         }
     }
 }
@@ -314,3 +332,38 @@ pub fn btc_string_to_sat(value: &str) -> u64 {
         .map(|btc| (btc * 100_000_000.0).round().max(0.0) as u64)
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::btc_string_to_sat;
+
+    #[test]
+    fn parses_decimal_btc_strings() {
+        assert_eq!(btc_string_to_sat("0.02440643"), 2_440_643);
+        assert_eq!(btc_string_to_sat("0"), 0);
+        assert_eq!(btc_string_to_sat("1"), 100_000_000);
+        assert_eq!(btc_string_to_sat(" 0.00000546 "), 546);
+    }
+
+    #[test]
+    fn balance_arithmetic_is_consistent() {
+        // Values taken from a real response: incoming - outgoing == balance.
+        let incoming = btc_string_to_sat("0.0561873");
+        let outgoing = btc_string_to_sat("0.03178087");
+        assert_eq!(incoming - outgoing, btc_string_to_sat("0.02440643"));
+    }
+
+    #[test]
+    fn survives_a_large_balance_without_precision_loss() {
+        // 29574.33018616 BTC — a real exchange address total.
+        assert_eq!(btc_string_to_sat("29574.33018616"), 2_957_433_018_616);
+    }
+
+    #[test]
+    fn malformed_input_is_zero_not_a_panic() {
+        assert_eq!(btc_string_to_sat(""), 0);
+        assert_eq!(btc_string_to_sat("not-a-number"), 0);
+        assert_eq!(btc_string_to_sat("-1"), 0, "negatives clamp to zero");
+    }
+}
+

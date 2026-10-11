@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use futures::future::try_join;
+use futures::future::{try_join, try_join_all};
 use serde_json::{Value, json};
 
 use crate::AppState;
@@ -180,32 +180,79 @@ pub async fn address(
     let offset = query.offset.unwrap_or(0);
     let address_type = address_type(&address);
 
-    if let Some(indexer) = &state.indexer {
-        if let Some(response) = indexer
-            .address_response(chain.key, &address, address_type.clone(), limit, offset)
-            .await?
-        {
-            return Ok(Json(response));
+    // Source order matters. The address-indexing provider covers the whole
+    // chain, so its balances are real lifetime totals. The local indexer only
+    // holds the last `INDEXER_LOOKBACK_BLOCKS` blocks, so it can describe
+    // recent activity but cannot total a lifetime — it is a fallback, not a
+    // preference, and it marks its own totals incomplete.
+    let provider = chain.tatum.as_ref();
+    let provider_result = match provider {
+        Some(provider) => Some(
+            try_join(
+                provider.address_balance(&address),
+                provider.address_transactions(&address, limit, offset),
+            )
+            .await,
+        ),
+        None => None,
+    };
+
+    let (balance, txs) = match provider_result {
+        Some(Ok(result)) => result,
+        other => {
+            // No provider, or the provider failed: fall back to whatever the
+            // local window indexer has rather than showing nothing.
+            if let Some(indexer) = &state.indexer {
+                if let Some(response) = indexer
+                    .address_response(chain.key, &address, address_type.clone(), limit, offset)
+                    .await?
+                {
+                    return Ok(Json(response));
+                }
+            }
+            return Err(match other {
+                Some(Err(error)) => error,
+                _ => AppError::NotFound(
+                    "address balances need an indexed provider; set TATUM_API_KEY or enable DATABASE_URL/INDEXER"
+                        .into(),
+                ),
+            });
         }
-    }
+    };
 
-    let indexer = chain.tatum.as_ref().ok_or_else(|| {
-        AppError::NotFound(
-            "address balances need an indexed provider; enable DATABASE_URL/INDEXER or set TATUM_API_KEY"
-                .into(),
-        )
-    })?;
-
-    let (balance, txs) = try_join(
-        indexer.address_balance(&address),
-        indexer.address_transactions(&address, limit, offset),
-    )
-    .await?;
-
-    let transactions = txs
+    let mut transactions = txs
         .iter()
         .map(|tx| address_transaction(tx, &address))
         .collect::<Vec<_>>();
+
+    // How much the address spent in a transaction is not derivable from the
+    // provider's response: it returns `inputs[].address` as null, so neither
+    // ownership nor amount can be read from it. The local index resolves every
+    // outpoint it ingests, so it can answer this exactly for transactions in
+    // its window — one query, no extra provider calls. Outside the window the
+    // field stays `None` rather than guessing.
+    if let Some(indexer) = &state.indexer {
+        let txids = transactions
+            .iter()
+            .map(|row| row.txid.clone())
+            .collect::<Vec<_>>();
+        match indexer
+            .address_sent_by_txid(chain.key, &address, &txids)
+            .await
+        {
+            Ok(sent) => {
+                for row in &mut transactions {
+                    if let Some(amount) = sent.get(&row.txid).copied() {
+                        row.sent_sat = Some(amount);
+                        row.spends_from_address = true;
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not read indexed spend amounts for address");
+            }
+        }
+    }
 
     Ok(Json(AddressResponse {
         network: chain.key.into(),
@@ -216,6 +263,7 @@ pub async fn address(
         sent_sat: btc_string_to_sat(&balance.outgoing),
         pending_balance_sat: btc_string_to_sat(&balance.incoming_pending) as i64
             - btc_string_to_sat(&balance.outgoing_pending) as i64,
+        totals_complete: true,
         offset,
         limit,
         transactions,
@@ -239,15 +287,6 @@ fn address_transaction(tx: &Value, address: &str) -> AddressTransaction {
         })
         .unwrap_or_default();
 
-    let spends_from_address = tx
-        .get("inputs")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .any(|input| input.get("address").and_then(Value::as_str) == Some(address))
-        })
-        .unwrap_or(false);
 
     AddressTransaction {
         txid: optional_string(tx, "hash").unwrap_or_default(),
@@ -255,7 +294,10 @@ fn address_transaction(tx: &Value, address: &str) -> AddressTransaction {
         timestamp: tx.get("time").and_then(Value::as_u64),
         fee_sat: tx.get("fee").and_then(Value::as_u64),
         received_sat,
-        spends_from_address,
+        // The provider gives no usable input data, so these start empty and
+        // are filled from the local index by the caller where it has them.
+        spends_from_address: false,
+        sent_sat: None,
     }
 }
 
@@ -276,10 +318,9 @@ pub async fn tx_detail(
         })
         .unwrap_or_default();
 
-    let mut resolved_inputs = Vec::with_capacity(inputs.len());
-    for input in inputs {
-        resolved_inputs.push(input.await?);
-    }
+    // Each input needs its previous output resolved — one round trip apiece.
+    // Sequentially a 20-input transaction costs 20x a single call.
+    let resolved_inputs = try_join_all(inputs).await?;
 
     let input_total: Option<u64> = if resolved_inputs.iter().any(|input| input.coinbase.is_some()) {
         None
@@ -469,4 +510,29 @@ fn address_type(address: &str) -> String {
     } else {
         "bitcoin address".into()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{address_type, fee_rate};
+
+    #[test]
+    fn fee_rate_needs_both_values_and_rejects_nonsense() {
+        assert_eq!(fee_rate(Some(1_000), Some(250)), Some(4.0));
+        assert_eq!(fee_rate(None, Some(250)), None);
+        assert_eq!(fee_rate(Some(1_000), None), None);
+        assert_eq!(fee_rate(Some(1_000), Some(0)), None, "no divide by zero");
+        assert_eq!(fee_rate(Some(-5), Some(250)), None, "coinbase has no fee");
+    }
+
+    #[test]
+    fn address_type_covers_each_script_form() {
+        assert_eq!(address_type("bc1pfeessrawgf"), "taproot");
+        assert_eq!(address_type("bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8t"), "segwit");
+        assert_eq!(address_type("3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ4"), "script hash");
+        assert_eq!(address_type("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"), "legacy");
+        assert_eq!(address_type("tb1p0000"), "taproot");
+        assert_eq!(address_type("???"), "bitcoin address");
+    }
+
 }

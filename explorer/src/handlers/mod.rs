@@ -121,3 +121,71 @@ pub(super) fn decode_op_return(asm: &str) -> Option<String> {
         .map(|text| text.chars().filter(|ch| !ch.is_control()).collect())
         .filter(|text: &String| !text.is_empty())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn btc_to_sat_is_exact_at_eight_decimals() {
+        assert_eq!(btc_to_sat(0.0), 0);
+        assert_eq!(btc_to_sat(1.0), 100_000_000);
+        assert_eq!(btc_to_sat(0.00000001), 1);
+        assert_eq!(btc_to_sat(0.00000546), 546);
+        // Naive f64 truncation yields 2099999999999999 here; rounding must win.
+        assert_eq!(btc_to_sat(20999999.9769), 2_099_999_997_690_000);
+    }
+
+    #[test]
+    fn btc_to_signed_sat_keeps_sign() {
+        assert_eq!(btc_to_signed_sat(-0.00000546), -546);
+        assert_eq!(btc_to_signed_sat(0.00001), 1_000);
+    }
+
+    #[test]
+    fn is_hex_hash_requires_exactly_64_hex_chars() {
+        let hash = "0000000000000000000020c7b2d4de83448127e6cd073090d1d21c72a80535bc";
+        assert!(is_hex_hash(hash));
+        assert!(!is_hex_hash(&hash[..63]), "63 chars must be rejected");
+        assert!(!is_hex_hash(&format!("{hash}0")), "65 chars must be rejected");
+        assert!(!is_hex_hash(&"z".repeat(64)), "non-hex must be rejected");
+        assert!(!is_hex_hash(""));
+    }
+
+    #[test]
+    fn accepts_every_mainnet_address_form() {
+        for address in [
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",           // P2PKH
+            "3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ4",           // P2SH
+            "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97", // P2WSH
+            "bc1pfeessrawgf",                               // P2A anchor
+        ] {
+            assert!(is_bitcoin_address(address), "should accept {address}");
+        }
+    }
+
+    #[test]
+    fn rejects_tampered_checksums() {
+        // Each of these is a valid address with its final character changed.
+        for address in [
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN3",
+            "3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ5",
+            "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw98",
+            "notanaddress",
+            "",
+        ] {
+            assert!(!is_bitcoin_address(address), "should reject {address}");
+        }
+    }
+
+    #[test]
+    fn network_is_checked_separately_from_validity() {
+        // Well-formed, but testnet — the address endpoint must not treat this
+        // as a mainnet address with an empty balance.
+        let parsed = parse_address("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
+            .expect("testnet address should parse");
+        assert!(!parsed.is_valid_for_network(bitcoin::Network::Bitcoin));
+        assert!(parsed.is_valid_for_network(bitcoin::Network::Testnet));
+    }
+}
+

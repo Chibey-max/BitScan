@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
@@ -202,8 +202,35 @@ impl Indexer {
         let Some(hash) = hash.as_str() else {
             return Err(AppError::Rpc("getblockhash returned non-string".into()));
         };
+
+        // A buried block never changes, so re-ingesting one is pure waste: the
+        // poll loop revisits the same window every cycle, and a mainnet block
+        // is ~3,500 transactions and ~10,000 outputs of redundant upserts. If
+        // the stored hash still matches, the block is done. A differing hash
+        // means this height was reorged, so fall through and re-ingest it.
+        if self.has_block(chain.key, height, hash).await? {
+            return Ok(());
+        }
+
         let block = chain.rpc.call("getblock", json!([hash, 2])).await?;
         self.upsert_block(chain.key, &block).await
+    }
+
+    async fn has_block(&self, network: &str, height: u64, hash: &str) -> Result<bool, AppError> {
+        let stored: Option<String> = sqlx::query_scalar(
+            r#"
+            select hash
+            from indexed_blocks
+            where network = $1 and height = $2
+            "#,
+        )
+        .bind(network)
+        .bind(height as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(sqlx_error)?;
+
+        Ok(stored.as_deref() == Some(hash))
     }
 
     async fn upsert_block(&self, network: &str, block: &Value) -> Result<(), AppError> {
@@ -497,6 +524,86 @@ impl Indexer {
         Ok(())
     }
 
+    /// Total fees for each of `hashes`, from the indexed transactions.
+    ///
+    /// `getblockstats` would answer this in one call but hosted providers
+    /// allowlist it away, and summing `getblock` verbosity-2 per request is far
+    /// too expensive. Blocks outside the indexed window simply have no entry,
+    /// and the field stays `None` rather than reporting a wrong total.
+    pub async fn block_fees(
+        &self,
+        network: &str,
+        hashes: &[String],
+    ) -> Result<HashMap<String, u64>, AppError> {
+        if hashes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            r#"
+            select block_hash, coalesce(sum(fee_sat), 0)::bigint as fees
+            from indexed_transactions
+            where network = $1 and block_hash = any($2)
+            group by block_hash
+            "#,
+        )
+        .bind(network)
+        .bind(hashes)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(sqlx_error)?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let hash: String = row.try_get("block_hash").ok()?;
+                let fees: i64 = row.try_get("fees").ok()?;
+                Some((hash, fees.max(0) as u64))
+            })
+            .collect())
+    }
+
+    /// How much `address` spent in each of `txids`, where the index knows.
+    ///
+    /// The address-indexing provider returns input addresses as null, so a
+    /// transaction's spent amount cannot be derived from its response at all.
+    /// The local index already resolves every outpoint it ingests, so for
+    /// transactions inside the indexed window this is exact and costs one
+    /// query instead of one provider lookup per input.
+    pub async fn address_sent_by_txid(
+        &self,
+        network: &str,
+        address: &str,
+        txids: &[String],
+    ) -> Result<HashMap<String, u64>, AppError> {
+        if txids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            r#"
+            select txid, spent_sat
+            from indexed_address_txs
+            where network = $1 and address = $2 and txid = any($3) and spent_sat > 0
+            "#,
+        )
+        .bind(network)
+        .bind(address)
+        .bind(txids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(sqlx_error)?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let txid: String = row.try_get("txid").ok()?;
+                let spent: i64 = row.try_get("spent_sat").ok()?;
+                Some((txid, spent.max(0) as u64))
+            })
+            .collect())
+    }
+
     pub async fn address_response(
         &self,
         network: &str,
@@ -524,7 +631,7 @@ impl Indexer {
 
         let balance_sat: Option<i64> = sqlx::query_scalar(
             r#"
-            select coalesce(sum(value_sat), 0)
+            select coalesce(sum(value_sat), 0)::bigint
             from indexed_outputs
             where network = $1 and address = $2 and spent_by_txid is null
             "#,
@@ -536,7 +643,7 @@ impl Indexer {
         .map_err(sqlx_error)?;
         let received_sat: Option<i64> = sqlx::query_scalar(
             r#"
-            select coalesce(sum(value_sat), 0)
+            select coalesce(sum(value_sat), 0)::bigint
             from indexed_outputs
             where network = $1 and address = $2
             "#,
@@ -548,7 +655,7 @@ impl Indexer {
         .map_err(sqlx_error)?;
         let sent_sat: Option<i64> = sqlx::query_scalar(
             r#"
-            select coalesce(sum(value_sat), 0)
+            select coalesce(sum(value_sat), 0)::bigint
             from indexed_outputs
             where network = $1 and address = $2 and spent_by_txid is not null
             "#,
@@ -598,6 +705,10 @@ impl Indexer {
                     .unwrap_or_default()
                     .max(0) as u64,
                 spends_from_address: row.try_get::<i64, _>("spent_sat").unwrap_or_default() > 0,
+                sent_sat: match row.try_get::<i64, _>("spent_sat").unwrap_or_default() {
+                    spent if spent > 0 => Some(spent as u64),
+                    _ => None,
+                },
             })
             .collect();
 
@@ -610,6 +721,9 @@ impl Indexer {
             received_sat: received_sat.unwrap_or_default().max(0) as u64,
             sent_sat: sent_sat.unwrap_or_default().max(0) as u64,
             pending_balance_sat: 0,
+            // These sums cover only the indexed window, not the address's
+            // whole history, so the response says so and the UI can too.
+            totals_complete: false,
             offset,
             limit,
             transactions,

@@ -1,7 +1,11 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 import {
+  NetworkKey,
+  REVALIDATE,
   TransactionDetail,
   errorMessage,
   formatBtcFromSats,
@@ -16,7 +20,7 @@ import {
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 type PageProps = {
   searchParams: Promise<{
@@ -30,6 +34,31 @@ type PageProps = {
 export default async function ReceiptPage({ searchParams }: PageProps) {
   const { txid, address, block_hash, network: networkParam } = await searchParams;
   const network = normalizeNetwork(networkParam);
+
+  return (
+    <Suspense key={`${network}:${txid ?? ""}:${address ?? ""}`} fallback={<Loading />}>
+      <ReceiptView
+        txid={txid}
+        address={address}
+        blockHash={block_hash}
+        network={network}
+      />
+    </Suspense>
+  );
+}
+
+async function ReceiptView({
+  txid,
+  address,
+  blockHash,
+  network,
+}: {
+  txid?: string;
+  address?: string;
+  blockHash?: string;
+  network: NetworkKey;
+}) {
+  const block_hash = blockHash;
 
   if (!txid) {
     return (
@@ -46,6 +75,7 @@ export default async function ReceiptPage({ searchParams }: PageProps) {
   try {
     tx = await getJson<TransactionDetail>(
       withNetwork(`/api/tx/${encodeURIComponent(txid)}${suffix}`, network),
+      REVALIDATE.immutable,
     );
   } catch (error) {
     if (isNetworkUnavailable(error)) {

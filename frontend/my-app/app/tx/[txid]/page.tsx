@@ -1,10 +1,14 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
 import EntityLink from "@/app/entity-link";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 import {
+  NetworkKey,
+  REVALIDATE,
   TransactionDetail,
   compactHash,
   errorMessage,
@@ -19,7 +23,7 @@ import {
   withNetwork,
 } from "@/app/lib/explorer";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 type PageProps = {
   params: Promise<{ txid: string }>;
@@ -33,13 +37,29 @@ export default async function TransactionPage({
   const { txid } = await params;
   const { block_hash, network: networkParam } = await searchParams;
   const network = normalizeNetwork(networkParam);
-  const suffix = block_hash
-    ? `?block_hash=${encodeURIComponent(block_hash)}`
-    : "";
+
+  return (
+    <Suspense key={`${network}:${txid}:${block_hash ?? ""}`} fallback={<Loading />}>
+      <TransactionView txid={txid} network={network} blockHash={block_hash} />
+    </Suspense>
+  );
+}
+
+async function TransactionView({
+  txid,
+  network,
+  blockHash,
+}: {
+  txid: string;
+  network: NetworkKey;
+  blockHash?: string;
+}) {
+  const suffix = blockHash ? `?block_hash=${encodeURIComponent(blockHash)}` : "";
   let tx: TransactionDetail;
   try {
     tx = await getJson<TransactionDetail>(
       withNetwork(`/api/tx/${encodeURIComponent(txid)}${suffix}`, network),
+      REVALIDATE.immutable,
     );
   } catch (error) {
     if (isNetworkUnavailable(error)) {
@@ -61,8 +81,8 @@ export default async function TransactionPage({
           error,
           "The provider could not return this transaction. If this is an old confirmed tx, open it from its block so the request can include the block hash.",
         )}
-        secondaryHref={block_hash ? networkHref(`/block/${block_hash}`, network) : undefined}
-        secondaryLabel={block_hash ? "Open block" : undefined}
+        secondaryHref={blockHash ? networkHref(`/block/${blockHash}`, network) : undefined}
+        secondaryLabel={blockHash ? "Open block" : undefined}
         network={network}
       />
     );

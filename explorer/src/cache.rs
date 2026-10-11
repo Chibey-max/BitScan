@@ -1,7 +1,8 @@
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use tokio::time::sleep;
 
 pub struct PersistentCache {
     pool: PgPool,
@@ -43,6 +44,41 @@ impl PersistentCache {
 
     pub fn pool(&self) -> PgPool {
         self.pool.clone()
+    }
+
+    /// Drop long-expired rows in the background.
+    ///
+    /// `expires_at` governs whether a row is served, not whether it exists, so
+    /// without this the table only ever grows. Rows are kept for a grace period
+    /// past expiry because the RPC layer deliberately falls back to stale
+    /// entries when a provider is rate limiting or down.
+    pub fn spawn_eviction(self: Arc<Self>, grace: Duration, every: Duration) {
+        tokio::spawn(async move {
+            loop {
+                match sqlx::query(
+                    r#"
+                    delete from provider_cache
+                    where expires_at < now() - ($1::bigint * interval '1 second')
+                    "#,
+                )
+                .bind(grace.as_secs() as i64)
+                .execute(&self.pool)
+                .await
+                {
+                    Ok(result) if result.rows_affected() > 0 => {
+                        tracing::info!(
+                            rows = result.rows_affected(),
+                            "evicted expired provider cache rows"
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::warn!(%error, "provider cache eviction failed");
+                    }
+                }
+                sleep(every).await;
+            }
+        });
     }
 
     pub async fn fresh<T>(&self, key: &str) -> Option<T>

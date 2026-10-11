@@ -1,8 +1,12 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import CopyButton from "@/app/copy-button";
 import EntityLink from "@/app/entity-link";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 import {
+  NetworkKey,
+  REVALIDATE,
   AddressDetail,
   errorMessage,
   formatBtcFromSats,
@@ -17,7 +21,7 @@ import {
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 const TX_PAGE_SIZE = 25;
 
@@ -32,6 +36,22 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
   const network = normalizeNetwork(networkParam);
   const offset = offsetParam && /^\d+$/.test(offsetParam) ? Number(offsetParam) : 0;
 
+  return (
+    <Suspense key={`${network}:${address}:${offset}`} fallback={<Loading />}>
+      <AddressView address={address} network={network} offset={offset} />
+    </Suspense>
+  );
+}
+
+async function AddressView({
+  address,
+  network,
+  offset,
+}: {
+  address: string;
+  network: NetworkKey;
+  offset: number;
+}) {
   let detail: AddressDetail;
   try {
     detail = await getJson<AddressDetail>(
@@ -39,6 +59,7 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
         `/api/address/${encodeURIComponent(address)}?limit=${TX_PAGE_SIZE}&offset=${offset}`,
         network,
       ),
+      REVALIDATE.address,
     );
   } catch (error) {
     if (isNetworkUnavailable(error)) {
@@ -90,6 +111,9 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
               <p className="mt-3 text-sm text-[var(--muted)]">
                 Checksum validated locally by the Rust API. Balances and history are
                 indexed by {detail.source}, since Bitcoin Core RPC has no address index.
+                {detail.totals_complete
+                  ? ""
+                  : " This fallback index only covers recent blocks, so the figures below are partial."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -106,17 +130,17 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
 
           <div className="grid border-t border-[var(--border)] sm:grid-cols-2 lg:grid-cols-4">
             <Metric
-              label="Balance"
+              label={detail.totals_complete ? "Balance" : "Balance (partial)"}
               value={`${formatNumber(detail.balance_sat)} sats`}
               secondary={formatBtcFromSats(detail.balance_sat, network)}
             />
             <Metric
-              label="Total received"
+              label={detail.totals_complete ? "Total received" : "Received (recent)"}
               value={`${formatNumber(detail.received_sat)} sats`}
               secondary={formatBtcFromSats(detail.received_sat, network)}
             />
             <Metric
-              label="Total sent"
+              label={detail.totals_complete ? "Total sent" : "Sent (recent)"}
               value={`${formatNumber(detail.sent_sat)} sats`}
               secondary={formatBtcFromSats(detail.sent_sat, network)}
             />
@@ -153,7 +177,7 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
               transactions.map((tx) => (
                 <article
                   key={tx.txid}
-                  className="grid gap-4 px-6 py-5 transition hover:bg-[var(--surface-hover)] lg:grid-cols-[minmax(0,1fr)_150px_170px_150px]"
+                  className="grid gap-4 px-6 py-5 transition hover:bg-[var(--surface-hover)] lg:grid-cols-[minmax(0,1fr)_130px_150px_150px_140px]"
                 >
                   <div className="min-w-0">
                     <div className="eyebrow">Txid</div>
@@ -175,7 +199,7 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
                     }
                   />
                   <TxMetric
-                    label="To this address"
+                    label="Received"
                     value={
                       tx.received_sat > 0
                         ? `${formatNumber(tx.received_sat)} sats`
@@ -184,6 +208,17 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
                     secondary={
                       tx.received_sat > 0
                         ? formatBtcFromSats(tx.received_sat, network)
+                        : undefined
+                    }
+                  />
+                  <TxMetric
+                    label="Sent"
+                    value={
+                      tx.sent_sat ? `${formatNumber(tx.sent_sat)} sats` : "—"
+                    }
+                    secondary={
+                      tx.sent_sat
+                        ? formatBtcFromSats(tx.sent_sat, network)
                         : undefined
                     }
                   />
@@ -242,14 +277,25 @@ export default async function AddressPage({ params, searchParams }: PageProps) {
             </div>
           ) : null}
 
+          {detail.totals_complete ? null : (
+            <div className="provider-note">
+              <MaterialIcon name="warning" />
+              <p>
+                The address-indexing provider could not be reached, so these figures
+                come from BitScan&apos;s own index, which only retains recent blocks.
+                Balance and totals are therefore partial and will understate any
+                address with older history.
+              </p>
+            </div>
+          )}
+
           <div className="provider-note">
             <MaterialIcon name="info" />
             <p>
-              Totals come from the indexer&apos;s balance endpoint. Per-transaction
-              amounts show only what was paid <em>to</em> this address — the indexer
-              reports input addresses without their values, so the amount spent in a
-              given transaction cannot be derived without resolving every previous
-              output.
+              Totals come from the address indexer&apos;s balance endpoint and cover
+              the address&apos;s whole history. The provider reports input addresses as
+              null, so per-transaction <em>Sent</em> amounts come from BitScan&apos;s own
+              index and show <em>—</em> for transactions older than its window.
             </p>
           </div>
         </section>

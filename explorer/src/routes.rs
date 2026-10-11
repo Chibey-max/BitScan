@@ -2,6 +2,7 @@ use axum::{Router, routing::get};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::AppState;
+use crate::error::AppError;
 use crate::handlers;
 
 pub fn app(state: AppState) -> Router {
@@ -21,7 +22,15 @@ pub fn app(state: AppState) -> Router {
             get(handlers::transactions::address),
         )
         .route("/api/search", get(handlers::search::search))
+        // Without this an unmatched path gets axum's bare 404 with an empty
+        // body, so a client parsing `{ "error": ... }` sees a JSON failure
+        // instead of the actual problem.
+        .fallback(not_found)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+async fn not_found(uri: axum::http::Uri) -> AppError {
+    AppError::NotFound(format!("no route for {uri}"))
 }

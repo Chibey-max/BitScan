@@ -1,8 +1,12 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 import {
   BlockTransactions,
   BlocksResponse,
+  NetworkKey,
+  REVALIDATE,
   TxSummary,
   errorMessage,
   formatBtcFromSats,
@@ -17,7 +21,7 @@ import {
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 type PageProps = {
   searchParams: Promise<{ network?: string }>;
@@ -31,28 +35,63 @@ type RecentTx = TxSummary & {
 export default async function TransactionsPage({ searchParams }: PageProps) {
   const { network: networkParam } = await searchParams;
   const network = normalizeNetwork(networkParam);
+
+  return (
+    <Suspense key={network} fallback={<Loading />}>
+      <RecentTransactions network={network} />
+    </Suspense>
+  );
+}
+
+// Testnet blocks are far busier per block and its provider is slower, so the
+// page samples fewer blocks there. Mainnet keeps the wider sample.
+const BLOCK_SAMPLE = { mainnet: 4, testnet: 2 } as const;
+const TXS_PER_BLOCK = { mainnet: 8, testnet: 6 } as const;
+
+async function RecentTransactions({ network }: { network: NetworkKey }) {
+  const blockSample = BLOCK_SAMPLE[network];
+  const txsPerBlock = TXS_PER_BLOCK[network];
   let rows: RecentTx[] = [];
   let warning: string | undefined;
 
   try {
-    const blockPage = await getJson<BlocksResponse>(withNetwork("/api/blocks?limit=4", network));
-    for (const block of blockPage.blocks) {
-      if (rows.length >= 24) break;
-      try {
-        const txPage = await getJson<BlockTransactions>(
-          withNetwork(`/api/block/${block.hash}/txs?limit=8&offset=0`, network),
-        );
-        rows.push(
-          ...txPage.transactions.map((tx) => ({
-            ...tx,
-            block_height: block.height,
-            block_hash: block.hash,
-          })),
-        );
-      } catch (error) {
-        warning = errorMessage(error, "Some transaction summaries could not be resolved.");
-      }
-    }
+    const blockPage = await getJson<BlocksResponse>(
+      withNetwork(`/api/blocks?limit=${blockSample}`, network),
+      REVALIDATE.live,
+    );
+
+    // One request per block, all in flight at once. Sequentially this was four
+    // nested round trips on top of an already-sequential backend fan-out.
+    // Each task reports its own failure rather than writing to a shared
+    // variable, so a partial outage still renders the blocks that did resolve.
+    const pages = await Promise.all(
+      blockPage.blocks.map(async (block) => {
+        try {
+          const txPage = await getJson<BlockTransactions>(
+            withNetwork(
+              `/api/block/${block.hash}/txs?limit=${txsPerBlock}&offset=0`,
+              network,
+            ),
+            REVALIDATE.immutable,
+          );
+          return {
+            rows: txPage.transactions.map((tx) => ({
+              ...tx,
+              block_height: block.height,
+              block_hash: block.hash,
+            })),
+            error: undefined as string | undefined,
+          };
+        } catch (error) {
+          return {
+            rows: [] as RecentTx[],
+            error: errorMessage(error, "Some transaction summaries could not be resolved."),
+          };
+        }
+      }),
+    );
+    rows = pages.flatMap((page) => page.rows);
+    warning = pages.find((page) => page.error)?.error;
   } catch (error) {
     if (isNetworkUnavailable(error)) {
       return (

@@ -1,5 +1,9 @@
+import { Suspense } from "react";
 import ErrorState from "@/app/error-state";
+import Loading from "@/app/loading";
 import {
+  NetworkKey,
+  REVALIDATE,
   Mempool,
   Tip,
   errorMessage,
@@ -16,7 +20,7 @@ import {
 import MaterialIcon from "@/app/material-icon";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 type PageProps = {
   searchParams: Promise<{ network?: string }>;
@@ -26,12 +30,20 @@ export default async function MempoolPage({ searchParams }: PageProps) {
   const { network: networkParam } = await searchParams;
   const network = normalizeNetwork(networkParam);
 
+  return (
+    <Suspense key={network} fallback={<Loading />}>
+      <MempoolView network={network} />
+    </Suspense>
+  );
+}
+
+async function MempoolView({ network }: { network: NetworkKey }) {
   let mempool: Mempool;
   let tip: Tip;
   try {
     [mempool, tip] = await Promise.all([
-      getJson<Mempool>(withNetwork("/api/mempool", network)),
-      getJson<Tip>(withNetwork("/api/tip", network)),
+      getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live),
+      getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live),
     ]);
   } catch (error) {
     if (isNetworkUnavailable(error)) {

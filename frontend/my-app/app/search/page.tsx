@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  REVALIDATE,
   ApiError,
   SearchResult,
   errorMessage,
@@ -11,7 +12,7 @@ import {
 } from "@/app/lib/explorer";
 import SiteHeader from "@/app/site-header";
 
-export const dynamic = "force-dynamic";
+// Not `force-dynamic` — see the note in app/lib/explorer.ts on getJson.
 
 type PageProps = {
   searchParams: Promise<{ q?: string; network?: string }>;
@@ -35,6 +36,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
   try {
     result = await getJson<SearchResult>(
       withNetwork(`/api/search?q=${encodeURIComponent(query)}`, network),
+      REVALIDATE.live,
     );
   } catch (error) {
     // Addresses and txids are classified without touching the node, so a 5xx

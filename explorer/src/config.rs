@@ -23,8 +23,13 @@ impl Config {
     pub fn from_env() -> Self {
         Self {
             bind_addr: std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:3001".into()),
-            rpc_url: std::env::var("BITCOIN_RPC_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:18443".into()),
+            // Required, deliberately. The old default was the regtest port
+            // (18443), so a missing or misnamed .env produced a server that
+            // started cleanly and then failed every chain request against a
+            // node that was never there. Fail at boot with a clear message.
+            rpc_url: std::env::var("BITCOIN_RPC_URL").expect(
+                "BITCOIN_RPC_URL must be set (e.g. http://127.0.0.1:8332 for a local mainnet node)",
+            ),
             rpc_user: std::env::var("BITCOIN_RPC_USER").unwrap_or_else(|_| "bitcoin".into()),
             rpc_password: std::env::var("BITCOIN_RPC_PASSWORD")
                 .unwrap_or_else(|_| "bitcoin".into()),

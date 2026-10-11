@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use futures::future::{join3, try_join_all};
 use serde_json::{Value, json};
 
 use crate::AppState;
@@ -61,9 +62,26 @@ pub async fn blocks(
     let limit = query.limit.unwrap_or(10).clamp(1, 50);
     let start = query.from_height.unwrap_or(tip_height).min(tip_height);
     let heights = (0..=start).rev().take(limit as usize);
-    let mut rows = Vec::with_capacity(limit as usize);
-    for height in heights {
-        rows.push(block_summary_at_height(&chain.rpc, height).await?);
+    // One round trip per block, run concurrently. Sequentially this is ~1s per
+    // block against a hosted provider; concurrently the whole fan-out costs
+    // about as much as a single call.
+    let mut rows =
+        try_join_all(heights.map(|height| block_summary_at_height(&chain.rpc, height))).await?;
+
+    // Fill in fee totals for the blocks our own index happens to cover.
+    // Anything outside the indexed window keeps `total_fees_sat: None`.
+    if let Some(indexer) = &state.indexer {
+        let hashes = rows.iter().map(|block| block.hash.clone()).collect::<Vec<_>>();
+        match indexer.block_fees(chain.key, &hashes).await {
+            Ok(fees) => {
+                for block in &mut rows {
+                    block.total_fees_sat = fees.get(&block.hash).copied();
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not read indexed block fees");
+            }
+        }
     }
 
     let next_from_height = rows.last().and_then(|block| block.height.checked_sub(1));
@@ -160,14 +178,15 @@ pub async fn block_transactions(
         .map(|txid| txid.to_owned())
         .collect::<Vec<_>>();
 
-    let mut transactions = Vec::with_capacity(visible_txids.len());
-    for txid in &visible_txids {
-        let tx = chain
+    let transactions = try_join_all(visible_txids.iter().map(|txid| {
+        chain
             .rpc
             .call("getrawtransaction", json!([txid, true, block_hash.clone()]))
-            .await?;
-        transactions.push(tx_summary(&tx)?);
-    }
+    }))
+    .await?
+    .iter()
+    .map(tx_summary)
+    .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(BlockTransactionsResponse {
         network: chain.key.into(),
@@ -188,10 +207,16 @@ async fn fee_bands(rpc: &RpcClient) -> FeeBands {
             .map(|btc_per_kvb| (btc_per_kvb * 100_000_000.0) / 1000.0)
     }
 
+    // Concurrent, not sequential: three round trips should cost one. Providers
+    // that allowlist methods refuse `estimatesmartfee`, and RpcClient remembers
+    // that refusal, so after the first attempt these cost nothing.
+    let (low_sat_vb, medium_sat_vb, high_sat_vb) =
+        join3(estimate(rpc, 6), estimate(rpc, 3), estimate(rpc, 1)).await;
+
     FeeBands {
-        low_sat_vb: estimate(rpc, 6).await,
-        medium_sat_vb: estimate(rpc, 3).await,
-        high_sat_vb: estimate(rpc, 1).await,
+        low_sat_vb,
+        medium_sat_vb,
+        high_sat_vb,
     }
 }
 
@@ -235,3 +260,24 @@ async fn block_summary_at_height(
     let block = rpc.call("getblock", json!([hash, 1])).await?;
     block_summary_from_json(&block)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::mempool_pressure;
+
+    #[test]
+    fn pressure_prefers_bytes_over_count() {
+        // A small number of very large transactions is still congestion.
+        assert_eq!(mempool_pressure(10, 300_000_000), "very high");
+        assert_eq!(mempool_pressure(10, 150_000_000), "high");
+    }
+
+    #[test]
+    fn pressure_falls_back_to_transaction_count() {
+        assert_eq!(mempool_pressure(30_000, 1_000), "busy");
+        assert_eq!(mempool_pressure(6_000, 1_000), "normal");
+        assert_eq!(mempool_pressure(100, 1_000), "quiet");
+        assert_eq!(mempool_pressure(0, 0), "quiet");
+    }
+}
+

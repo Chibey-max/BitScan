@@ -201,6 +201,11 @@ pub struct AddressResponse {
     pub received_sat: u64,
     pub sent_sat: u64,
     pub pending_balance_sat: i64,
+    /// False when `balance_sat`/`received_sat`/`sent_sat` only cover a recent
+    /// window rather than the address's full history. The local indexer keeps
+    /// just the last `INDEXER_LOOKBACK_BLOCKS` blocks, so it can describe
+    /// recent activity but can never total a lifetime.
+    pub totals_complete: bool,
     pub offset: usize,
     pub limit: usize,
     pub transactions: Vec<AddressTransaction>,
@@ -216,9 +221,12 @@ pub struct AddressTransaction {
     pub fee_sat: Option<u64>,
     /// Sum of this transaction's outputs paying the address. Exact.
     pub received_sat: u64,
-    /// Whether the address appears among the inputs. The amount it spent is not
-    /// derivable without resolving every previous output, so it is not reported.
+    /// Whether the address appears among the inputs.
     pub spends_from_address: bool,
+    /// Sum of the inputs this address contributed, resolved by looking up each
+    /// previous output. `None` when the address spent nothing here, or when
+    /// resolution was skipped because the page needed too many lookups.
+    pub sent_sat: Option<u64>,
 }
 
 #[derive(Serialize)]
