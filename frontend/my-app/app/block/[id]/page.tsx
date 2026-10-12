@@ -299,7 +299,11 @@ function BlockCapacityMap({ percent }: { percent?: number }) {
           <span
             key={index}
             className="block-capacity-cell"
-            style={{ "--cell-fill": `${cellFill}%` } as CSSProperties}
+            data-filled={cellFill > 0 ? "true" : "false"}
+            style={{
+              "--cell-fill": `${cellFill}%`,
+              "--cell-delay": `${Math.min(fillOrder * 5, 620)}ms`,
+            } as CSSProperties}
           />
         );
       })}
