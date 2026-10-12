@@ -1910,6 +1910,7 @@ button { font: inherit; }
   background: color-mix(in srgb, var(--surface-2) 70%, transparent);
   overflow: hidden;
 }
+.flow-item > * { min-width: 0; }
 .output-item { background: color-mix(in srgb, var(--green) 7%, var(--surface-2)); }
 .flow-output-head {
   min-width: 0;
@@ -1957,6 +1958,13 @@ button { font: inherit; }
 .flow-item .copy-button {
   flex: 0 0 auto;
   margin-top: 2px;
+}
+.op-return-data {
+  max-width: 100%;
+  line-height: 1.55;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .site-footer {

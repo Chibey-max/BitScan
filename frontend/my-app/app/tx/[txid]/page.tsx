@@ -330,7 +330,7 @@ async function TransactionView({
                       </p>
                     )}
                     {output.decoded_op_return ? (
-                      <p className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">
+                      <p className="op-return-data mt-3 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">
                         {output.decoded_op_return}
                       </p>
                     ) : null}
