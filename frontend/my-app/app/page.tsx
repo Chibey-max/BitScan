@@ -91,14 +91,15 @@ async function HomePanels({
 
   try {
     const [nextTip, nextMempool, blockPage] = await Promise.all([
-      getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live),
-      getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live),
+      getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live, 4_500),
+      getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live, 4_500),
       getJson<BlocksResponse>(
         withNetwork(
           `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
           network,
         ),
         REVALIDATE.live,
+        4_500,
       ),
     ]);
     state = "live";

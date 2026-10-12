@@ -279,11 +279,21 @@ export const REVALIDATE = {
 export async function getJson<T>(
   path: string,
   revalidate: number = REVALIDATE.live,
+  timeoutMs: number = 8_000,
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { accept: "application/json" },
-    next: { revalidate },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: { accept: "application/json" },
+      next: { revalidate },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     let detail: string | undefined;
