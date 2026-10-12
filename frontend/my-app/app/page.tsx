@@ -89,37 +89,58 @@ async function HomePanels({
   let blocks = demoBlocks;
   let nextFromHeight: number | undefined;
 
-  try {
-    const [nextTip, nextMempool, blockPage] = await Promise.all([
-      getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live, 4_500),
-      getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live, 4_500),
-      getJson<BlocksResponse>(
-        withNetwork(
-          `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
-          network,
-        ),
-        REVALIDATE.live,
-        4_500,
+  const [tipResult, mempoolResult, blocksResult] = await Promise.allSettled([
+    getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live, 6_000),
+    getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live, 6_000),
+    getJson<BlocksResponse>(
+      withNetwork(
+        `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
+        network,
       ),
-    ]);
+      REVALIDATE.live,
+      10_000,
+    ),
+  ]);
+
+  const failures = [tipResult, mempoolResult, blocksResult].filter(
+    (result) => result.status === "rejected",
+  );
+  const hasAnyLiveData =
+    tipResult.status === "fulfilled" ||
+    mempoolResult.status === "fulfilled" ||
+    blocksResult.status === "fulfilled";
+
+  if (!hasAnyLiveData && failures.some((result) => isNetworkUnavailable(result.reason))) {
+    return (
+      <ErrorState
+        eyebrow="Network unavailable"
+        title="Testnet is not connected yet"
+        message="BitScan understands testnet routes, but this deployment still needs a testnet Bitcoin RPC endpoint before it can serve testnet data."
+        primaryHref="/"
+        primaryLabel="Open mainnet"
+        network="mainnet"
+      />
+    );
+  }
+
+  if (hasAnyLiveData) {
     state = "live";
-    tip = nextTip;
-    mempool = nextMempool;
-    blocks = blockPage.blocks;
-    nextFromHeight = blockPage.next_from_height;
-  } catch (error) {
-    if (isNetworkUnavailable(error)) {
-      return (
-        <ErrorState
-          eyebrow="Network unavailable"
-          title="Testnet is not connected yet"
-          message="BitScan understands testnet routes, but this deployment still needs a testnet Bitcoin RPC endpoint before it can serve testnet data."
-          primaryHref="/"
-          primaryLabel="Open mainnet"
-          network="mainnet"
-        />
-      );
+
+    if (tipResult.status === "fulfilled") {
+      tip = tipResult.value;
     }
+
+    if (mempoolResult.status === "fulfilled") {
+      mempool = mempoolResult.value;
+    }
+
+    if (blocksResult.status === "fulfilled") {
+      blocks = blocksResult.value.blocks;
+      nextFromHeight = blocksResult.value.next_from_height;
+    } else if (tipResult.status === "fulfilled") {
+      blocks = [];
+    }
+  } else {
     state = "demo";
   }
 
