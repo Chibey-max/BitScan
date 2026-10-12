@@ -349,7 +349,10 @@ mod tests {
     #[test]
     fn cache_keys_are_namespaced_per_provider() {
         // Two networks on different hosts must not collide in the shared cache.
-        assert_eq!(provider_key("https://bitrpc.thebuidl.xyz/bitcoin"), "bitrpc.thebuidl.xyz");
+        assert_eq!(
+            provider_key("https://bitrpc.thebuidl.xyz/bitcoin"),
+            "bitrpc.thebuidl.xyz"
+        );
         assert_eq!(provider_key("http://127.0.0.1:8332/"), "127.0.0.1:8332");
         assert_ne!(
             provider_key("https://bitcoin-mainnet.gateway.tatum.io"),
@@ -357,4 +360,3 @@ mod tests {
         );
     }
 }
-

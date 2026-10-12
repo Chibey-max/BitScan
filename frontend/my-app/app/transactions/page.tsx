@@ -152,7 +152,7 @@ async function RecentTransactions({ network }: { network: NetworkKey }) {
             {rows.map((tx) => (
               <article key={`${tx.block_hash}:${tx.txid}`} className="tx-row tx-card-row">
                 <Link
-                  href={networkHref(`/tx/${tx.txid}?block_hash=${tx.block_hash}`, network)}
+                  href={networkHref(`/tx/${tx.txid}`, network)}
                   className="tx-main transactions-main"
                 >
                   <div className="min-w-0">

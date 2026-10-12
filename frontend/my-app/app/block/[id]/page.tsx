@@ -421,7 +421,7 @@ async function BlockTxPanel({
                 ? txs.transactions.map((tx) => (
                     <article key={tx.txid} className="tx-row tx-card-row">
                       <Link
-                        href={networkHref(`/tx/${tx.txid}?block_hash=${block.hash}`, network)}
+                        href={networkHref(`/tx/${tx.txid}`, network)}
                         className="tx-main"
                       >
                         <div className="min-w-0">
@@ -475,7 +475,7 @@ async function BlockTxPanel({
                 : fallbackTxids.map((txid) => (
                     <article key={txid} className="tx-row tx-card-row">
                       <Link
-                        href={networkHref(`/tx/${txid}?block_hash=${block.hash}`, network)}
+                        href={networkHref(`/tx/${txid}`, network)}
                         className="tx-main tx-main-fallback"
                       >
                         <div className="min-w-0">

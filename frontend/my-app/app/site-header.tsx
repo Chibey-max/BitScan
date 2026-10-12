@@ -25,6 +25,8 @@ export default function SiteHeader({
           <Link href={networkHref("/#latest-blocks", network)}>Blocks</Link>
           <Link href={networkHref("/transactions", network)}>Transactions</Link>
           <Link href={networkHref("/mempool", network)}>Mempool</Link>
+          <Link href={networkHref("/news", network)}>News</Link>
+          <Link href={networkHref("/ai", network)}>AI</Link>
         </nav>
         <SmartSearch network={network} />
         <div className="header-status"><span className={live ? "status-dot" : "status-dot status-dot-offline"} /><span>{live ? "Live" : "Demo"}</span></div>

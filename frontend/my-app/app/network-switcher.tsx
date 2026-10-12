@@ -8,8 +8,17 @@ import MaterialIcon from "@/app/material-icon";
 export default function NetworkSwitcher({ network }: { network: NetworkKey }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const isEntityDetail =
+    pathname.startsWith("/block/") ||
+    pathname.startsWith("/tx/") ||
+    pathname.startsWith("/address/") ||
+    pathname.startsWith("/addr/");
 
   function hrefFor(nextNetwork: NetworkKey) {
+    if (nextNetwork !== network && isEntityDetail) {
+      return nextNetwork === "testnet" ? "/?network=testnet" : "/";
+    }
+
     const params = new URLSearchParams(searchParams.toString());
     if (nextNetwork === "testnet") {
       params.set("network", "testnet");

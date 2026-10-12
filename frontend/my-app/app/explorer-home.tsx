@@ -14,7 +14,6 @@ import {
   formatFeeRate,
   networkHref,
   networkLabel,
-  networkSource,
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import RelativeTime from "@/app/relative-time";
@@ -51,29 +50,6 @@ export default function ExplorerHome({
     <main className="app-shell">
       <SiteHeader live={state === "live"} network={network} />
       <div className="dashboard-wrap explorer-stage">
-        <section className="command-deck reveal-panel">
-          <div className="command-copy">
-            <div className="live-badge">
-              <span className={state === "live" ? "status-dot" : "status-dot status-dot-offline"} />
-              {state === "live" ? `${networkLabel(network)} live` : "Demo data"}
-            </div>
-            <h1>BitScan Bitcoin Explorer</h1>
-            <p>
-              Inspect blocks and transactions from a Rust API backed by Bitcoin Core RPC.
-              Paste a height, block hash, transaction id, or address to start.
-            </p>
-          </div>
-          <div className="command-proof">
-            <MaterialIcon name="crowdsource" />
-            <p>Data source: {networkSource(network)}.</p>
-            <div className="search-examples" aria-label="Search examples">
-              <Link href={networkHref(`/block/${tip.height}`, network)}>#{tip.height.toLocaleString("en-US")}</Link>
-              <Link href={networkHref(`/block/${tip.hash}`, network)}>{compactHash(tip.hash, 8, 6)}</Link>
-              <span>{state === "live" ? "RPC connected" : "Provider fallback"}</span>
-            </div>
-          </div>
-        </section>
-
         <section className="chain-hero reveal-panel reveal-delay-1">
           <div className="tip-card">
             <div className="tip-grid">
@@ -192,17 +168,6 @@ export default function ExplorerHome({
           </section>
 
           <aside className="dashboard-aside explorer-side">
-            <section className="panel api-panel">
-              <div className="aside-title">
-                <MaterialIcon name="settings_input_antenna" />
-                <h2>Runtime</h2>
-              </div>
-              <p>Requests resolved by the Rust backend for this page.</p>
-              <Endpoint path="/api/tip" ok={state === "live"} note="current chain height" />
-              <Endpoint path="/api/mempool" ok={state === "live"} note="mempool snapshot" />
-              <Endpoint path="/api/blocks" ok={state === "live"} note="height-based pagination" />
-            </section>
-
             <section className="panel coverage-panel">
               <div className="aside-title">
                 <MaterialIcon name="hub" />
@@ -228,6 +193,7 @@ export default function ExplorerHome({
                 </div>
               </section>
             ) : null}
+
           </aside>
         </div>
       </div>
@@ -326,18 +292,6 @@ function BlockFillBar({
   );
 }
 
-function Endpoint({ path, ok, note }: { path: string; ok: boolean; note: string }) {
-  return (
-    <div className="endpoint">
-      <div>
-        <code><span>GET</span> {path}</code>
-        <strong className={ok ? "ok" : "bad"}>{ok ? "200" : "DEMO"}</strong>
-      </div>
-      <p>{note}</p>
-    </div>
-  );
-}
-
 function Coverage({
   icon,
   label,
@@ -360,3 +314,4 @@ function Coverage({
     </div>
   );
 }
+

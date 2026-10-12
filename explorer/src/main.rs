@@ -7,6 +7,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod cache;
 mod config;
 mod error;
+mod groq;
 mod handlers;
 mod indexer;
 mod model;
@@ -16,6 +17,7 @@ mod tatum;
 
 use cache::PersistentCache;
 use config::Config;
+use groq::GroqClient;
 use indexer::{Indexer, IndexerChain};
 use rpc::RpcClient;
 use tatum::TatumClient;
@@ -25,6 +27,8 @@ pub struct AppState {
     pub mainnet: ChainState,
     pub testnet: Option<ChainState>,
     pub indexer: Option<Arc<Indexer>>,
+    pub cache: Option<Arc<PersistentCache>>,
+    pub ai: Option<Arc<GroqClient>>,
 }
 
 #[derive(Clone)]
@@ -65,6 +69,21 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env();
+    let ai = if config.groq_api_keys.is_empty() {
+        tracing::warn!("GROQ_API_KEY/GROQ_API_KEYS is not set; AI mode is disabled");
+        None
+    } else {
+        tracing::info!(
+            keys = config.groq_api_keys.len(),
+            model = %config.groq_model,
+            "Groq AI mode is enabled"
+        );
+        Some(Arc::new(GroqClient::new(
+            config.groq_base_url.clone(),
+            config.groq_model.clone(),
+            config.groq_api_keys.clone(),
+        )?))
+    };
     let persistent_cache = match config.database_url.as_deref() {
         Some(database_url) => match PersistentCache::connect(database_url).await {
             Ok(cache) => {
@@ -172,6 +191,8 @@ async fn main() -> anyhow::Result<()> {
         },
         testnet,
         indexer: indexer.clone(),
+        cache: persistent_cache.clone(),
+        ai,
     };
 
     if let Some(indexer) = indexer {

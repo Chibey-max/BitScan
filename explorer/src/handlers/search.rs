@@ -31,10 +31,9 @@ pub async fn search(
 
     if is_hex_hash(q) {
         // A 64-hex string is either a block hash or a txid. `getblock` settles
-        // the first case cheaply; anything else is a transaction. We deliberately
-        // do not confirm it with `getrawtransaction`, because that needs txindex
-        // (or a block hash) and would turn every txid search into a dead end on
-        // providers without it. The transaction page handles that limitation.
+        // the first case cheaply; anything else is treated as a transaction.
+        // Indexed providers such as BitRPC resolve historical txids directly on
+        // the transaction page.
         if let Ok(block) = chain.rpc.call("getblock", json!([q, 1])).await {
             return Ok(Json(SearchResponse::Block {
                 hash: q.to_owned(),

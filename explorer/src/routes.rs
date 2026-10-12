@@ -1,4 +1,7 @@
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::AppState;
@@ -10,6 +13,9 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(handlers::health::health))
         .route("/api/tip", get(handlers::blocks::tip))
         .route("/api/mempool", get(handlers::blocks::mempool))
+        .route("/api/news", get(handlers::news::news))
+        .route("/api/ai/chat", post(handlers::ai::chat))
+        .route("/api/ai/resources", get(handlers::ai::resources))
         .route("/api/blocks", get(handlers::blocks::blocks))
         .route("/api/block/{id}", get(handlers::blocks::block_detail))
         .route(

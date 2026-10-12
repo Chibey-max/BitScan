@@ -176,6 +176,37 @@ export type SearchResult =
   | { type: "tx"; txid: string }
   | { type: "address"; address: string };
 
+export type NewsArticle = {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  published_at?: string;
+  summary?: string;
+  category: string;
+  tags: string[];
+};
+
+export type NewsResponse = {
+  articles: NewsArticle[];
+  sources: string[];
+  cached: boolean;
+  updated_at: number;
+};
+
+export type AiResource = {
+  title: string;
+  url: string;
+};
+
+export type AiChatResponse = {
+  answer: string;
+  model: string;
+  provider: string;
+  key_index: number;
+  resources: AiResource[];
+};
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 
@@ -241,6 +272,8 @@ export const REVALIDATE = {
   immutable: 300,
   /** Address balances move whenever a new block lands. */
   address: 30,
+  /** News aggregation is cached by the API and can stay calm between reads. */
+  news: 600,
 } as const;
 
 export async function getJson<T>(

@@ -17,6 +17,9 @@ pub struct Config {
     pub indexer_enabled: bool,
     pub indexer_lookback_blocks: u64,
     pub indexer_poll_seconds: u64,
+    pub groq_api_keys: Vec<String>,
+    pub groq_model: String,
+    pub groq_base_url: String,
 }
 
 impl Config {
@@ -69,6 +72,11 @@ impl Config {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(30),
+            groq_api_keys: groq_keys(),
+            groq_model: std::env::var("GROQ_MODEL")
+                .unwrap_or_else(|_| "openai/gpt-oss-120b".into()),
+            groq_base_url: std::env::var("GROQ_BASE_URL")
+                .unwrap_or_else(|_| "https://api.groq.com/openai/v1".into()),
         }
     }
 }
@@ -77,4 +85,27 @@ fn non_empty(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
         .filter(|value| !value.trim().is_empty())
+}
+
+fn groq_keys() -> Vec<String> {
+    let mut keys = Vec::new();
+
+    if let Some(value) = non_empty("GROQ_API_KEYS") {
+        keys.extend(
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+
+    for key in ["GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3"] {
+        if let Some(value) = non_empty(key) {
+            keys.push(value);
+        }
+    }
+
+    keys.dedup();
+    keys
 }

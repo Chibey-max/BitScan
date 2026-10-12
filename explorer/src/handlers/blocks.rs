@@ -71,7 +71,10 @@ pub async fn blocks(
     // Fill in fee totals for the blocks our own index happens to cover.
     // Anything outside the indexed window keeps `total_fees_sat: None`.
     if let Some(indexer) = &state.indexer {
-        let hashes = rows.iter().map(|block| block.hash.clone()).collect::<Vec<_>>();
+        let hashes = rows
+            .iter()
+            .map(|block| block.hash.clone())
+            .collect::<Vec<_>>();
         match indexer.block_fees(chain.key, &hashes).await {
             Ok(fees) => {
                 for block in &mut rows {
@@ -164,7 +167,6 @@ pub async fn block_transactions(
     let limit = query.limit.unwrap_or(25).clamp(1, 100);
     let offset = query.offset.unwrap_or(0);
     let block = get_block_by_id(&chain.rpc, &id, 1).await?;
-    let block_hash = get_string(&block, "hash")?;
     let txids = block
         .get("tx")
         .and_then(Value::as_array)
@@ -178,11 +180,11 @@ pub async fn block_transactions(
         .map(|txid| txid.to_owned())
         .collect::<Vec<_>>();
 
-    let transactions = try_join_all(visible_txids.iter().map(|txid| {
-        chain
-            .rpc
-            .call("getrawtransaction", json!([txid, true, block_hash.clone()]))
-    }))
+    let transactions = try_join_all(
+        visible_txids
+            .iter()
+            .map(|txid| chain.rpc.call("getrawtransaction", json!([txid, true]))),
+    )
     .await?
     .iter()
     .map(tx_summary)
@@ -280,4 +282,3 @@ mod tests {
         assert_eq!(mempool_pressure(0, 0), "quiet");
     }
 }
-

@@ -79,7 +79,7 @@ async function TransactionView({
         title="Transaction not available"
         message={errorMessage(
           error,
-          "The provider could not return this transaction. If this is an old confirmed tx, open it from its block so the request can include the block hash.",
+          "The provider could not return this transaction. Check the txid and try again.",
         )}
         secondaryHref={blockHash ? networkHref(`/block/${blockHash}`, network) : undefined}
         secondaryLabel={blockHash ? "Open block" : undefined}
@@ -93,6 +93,8 @@ async function TransactionView({
     (sum, output) => sum + (output.value_sat ?? 0),
     0,
   );
+  const decoderRows = buildDecoderRows(tx, inputs.length, outputs.length, totalOut, network);
+  const scriptGuide = buildScriptGuide(outputs);
 
   return (
     <main className="app-shell">
@@ -111,7 +113,7 @@ async function TransactionView({
               Transaction
             </h1>
             <div className="hash-line">
-              <Link href={networkHref(`/tx/${tx.txid}${tx.blockhash ? `?block_hash=${tx.blockhash}` : ""}`, network)} className="entity-link mono">
+              <Link href={networkHref(`/tx/${tx.txid}`, network)} className="entity-link mono">
                 {tx.txid}
               </Link>
               <CopyButton value={tx.txid} label="Copy txid" compact />
@@ -166,27 +168,6 @@ async function TransactionView({
             </dl>
           </section>
 
-          <section className="panel tx-intel-panel">
-            <div className="tx-intel-head">
-              <span className="tx-intel-icon"><MaterialIcon name="speed" /></span>
-              <div>
-                <p className="section-kicker">Fee intelligence</p>
-                <h2>Grade {tx.fee_grade?.grade ?? tx.fee_report?.grade ?? "n/a"}</h2>
-              </div>
-            </div>
-            <p className="tx-intel-copy">
-              {tx.fee_grade?.verdict ?? tx.fee_report?.verdict ?? "Fee rate unavailable."}
-            </p>
-            <div className="tx-intel-grid">
-              <MiniMetric label="Fee rate" value={formatFeeRate(tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb)} />
-              <MiniMetric
-                label="Target"
-                value={tx.fee_grade?.target_blocks ? `${tx.fee_grade.target_blocks} block${tx.fee_grade.target_blocks === 1 ? "" : "s"}` : "not available"}
-              />
-            </div>
-            <FeeStrip percentile={tx.fee_report?.percentile ?? null} feeRate={tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb} />
-          </section>
-
           {tx.summary ? (
             <section className="panel tx-intel-panel">
               <div className="tx-intel-head">
@@ -211,6 +192,64 @@ async function TransactionView({
               ) : null}
             </section>
           ) : null}
+
+          <section className="panel tx-decoder-panel">
+            <div className="tx-decoder-header">
+              <div>
+                <p className="section-kicker">Transaction decoding</p>
+                <h2>Readable byte map</h2>
+              </div>
+              <span className="flow-chip">{tx.hash !== tx.txid ? "segwit" : "legacy"}</span>
+            </div>
+            <div className="decoder-grid">
+              {decoderRows.map((row) => (
+                <div key={row.label} className="decoder-row">
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                  <p>{row.detail}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel learnme-panel">
+            <div className="tx-decoder-header">
+              <div>
+                <p className="section-kicker">Learn this transaction</p>
+                <h2>What to notice</h2>
+              </div>
+              <MaterialIcon name="school" />
+            </div>
+            <div className="lesson-strip">
+              <Lesson
+                title={tx.summary?.is_coinbase ? "Coinbase input" : "Inputs spend old outputs"}
+                body={
+                  tx.summary?.is_coinbase
+                    ? "The input creates the block subsidy and fees for the miner, so it has no previous txid."
+                    : "Every normal input points to a previous transaction output with a txid and vout index."
+                }
+              />
+              <Lesson
+                title="Outputs lock value"
+                body="Each output has a value and locking script. The address is a readable form of that script when the provider can decode it."
+              />
+              <Lesson
+                title="Fees are the difference"
+                body={
+                  tx.fee_sat === undefined
+                    ? "The fee is unavailable because the provider did not return every previous output."
+                    : `${formatNumber(tx.fee_sat)} sats paid to miners, measured as ${formatFeeRate(tx.fee_rate_sat_vb)}.`
+                }
+              />
+            </div>
+            {scriptGuide.length ? (
+              <div className="script-guide">
+                {scriptGuide.map((item) => (
+                  <span key={item} className="flow-chip">{item}</span>
+                ))}
+              </div>
+            ) : null}
+          </section>
 
           <section className="panel flow-panel tx-flow-wide">
             <div className="panel-heading detail-panel-heading">
@@ -306,31 +345,70 @@ async function TransactionView({
   );
 }
 
+function buildDecoderRows(
+  tx: TransactionDetail,
+  inputCount: number,
+  outputCount: number,
+  totalOut: number,
+  network: NetworkKey,
+) {
+  const feeRate = tx.fee_rate_sat_vb ?? tx.fee_report?.fee_rate_sat_vb;
+  return [
+    {
+      label: "Version",
+      value: formatNumber(tx.version),
+      detail: "Tells nodes which transaction rules this data format follows.",
+    },
+    {
+      label: "Input counter",
+      value: inputCount.toLocaleString("en-US"),
+      detail: inputCount === 1 ? "One previous output is being spent." : "Multiple previous outputs are funding this spend.",
+    },
+    {
+      label: "Output counter",
+      value: outputCount.toLocaleString("en-US"),
+      detail: `${formatBtcFromSats(totalOut, network)} is locked into new outputs.`,
+    },
+    {
+      label: "Witness data",
+      value: tx.hash !== tx.txid ? "Present" : "Not separate",
+      detail: tx.hash !== tx.txid ? "The witness changes the transaction hash, so this is a SegWit-style transaction." : "The txid and hash match, so no separate witness hash was reported.",
+    },
+    {
+      label: "Fee rate",
+      value: formatFeeRate(feeRate),
+      detail: "Fee rate is the miner fee divided by virtual size.",
+    },
+    {
+      label: "Locktime",
+      value: formatNumber(tx.locktime),
+      detail: tx.locktime ? "This transaction includes a final-time or final-height constraint." : "Zero locktime means it can be mined as soon as inputs are valid.",
+    },
+  ];
+}
+
+function buildScriptGuide(outputs: TransactionDetail["outputs"]) {
+  const types = new Set<string>();
+  outputs?.forEach((output) => {
+    if (output.script_type) types.add(output.script_type);
+  });
+  return Array.from(types).slice(0, 6);
+}
+
+function Lesson({ title, body }: { title: string; body: string }) {
+  return (
+    <article className="lesson-card">
+      <strong>{title}</strong>
+      <p>{body}</p>
+    </article>
+  );
+}
+
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="tx-mini-metric">
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
-  );
-}
-
-function FeeStrip({
-  percentile,
-  feeRate,
-}: {
-  percentile?: number | null;
-  feeRate?: number;
-}) {
-  const marker = percentile ?? Math.min(100, (feeRate ?? 0) * 4);
-  return (
-    <div className="block-fill block-fill-large">
-      <span className="block-fill-track">
-        <span style={{ width: `${Math.min(100, marker)}%` }} />
-      </span>
-      <span className="block-fill-label">
-        {percentile === undefined || percentile === null ? "fee-rate band" : `${percentile.toFixed(1)} percentile`}
-      </span>
     </div>
   );
 }

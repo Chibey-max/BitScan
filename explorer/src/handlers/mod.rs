@@ -1,5 +1,7 @@
+pub mod ai;
 pub mod blocks;
 pub mod health;
+pub mod news;
 pub mod search;
 pub mod transactions;
 
@@ -147,7 +149,10 @@ mod tests {
         let hash = "0000000000000000000020c7b2d4de83448127e6cd073090d1d21c72a80535bc";
         assert!(is_hex_hash(hash));
         assert!(!is_hex_hash(&hash[..63]), "63 chars must be rejected");
-        assert!(!is_hex_hash(&format!("{hash}0")), "65 chars must be rejected");
+        assert!(
+            !is_hex_hash(&format!("{hash}0")),
+            "65 chars must be rejected"
+        );
         assert!(!is_hex_hash(&"z".repeat(64)), "non-hex must be rejected");
         assert!(!is_hex_hash(""));
     }
@@ -155,10 +160,10 @@ mod tests {
     #[test]
     fn accepts_every_mainnet_address_form() {
         for address in [
-            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",           // P2PKH
-            "3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ4",           // P2SH
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", // P2PKH
+            "3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ4", // P2SH
             "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97", // P2WSH
-            "bc1pfeessrawgf",                               // P2A anchor
+            "bc1pfeessrawgf",                     // P2A anchor
         ] {
             assert!(is_bitcoin_address(address), "should accept {address}");
         }
@@ -188,4 +193,3 @@ mod tests {
         assert!(parsed.is_valid_for_network(bitcoin::Network::Testnet));
     }
 }
-

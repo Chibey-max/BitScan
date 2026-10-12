@@ -38,6 +38,20 @@ pub struct NetworkQuery {
     pub network: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct NewsQuery {
+    pub q: Option<String>,
+    pub category: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct AiChatRequest {
+    pub message: String,
+    pub mode: Option<String>,
+    pub context: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub ok: bool,
@@ -235,4 +249,39 @@ pub enum SearchResponse {
     Block { hash: String, height: Option<u64> },
     Tx { txid: String },
     Address { address: String },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NewsResponse {
+    pub articles: Vec<NewsArticle>,
+    pub sources: Vec<String>,
+    pub cached: bool,
+    pub updated_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NewsArticle {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub source: String,
+    pub published_at: Option<String>,
+    pub summary: Option<String>,
+    pub category: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct AiChatResponse {
+    pub answer: String,
+    pub model: String,
+    pub provider: &'static str,
+    pub key_index: usize,
+    pub resources: Vec<AiResource>,
+}
+
+#[derive(Serialize)]
+pub struct AiResource {
+    pub title: &'static str,
+    pub url: &'static str,
 }

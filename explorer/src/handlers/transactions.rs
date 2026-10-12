@@ -31,39 +31,56 @@ pub async fn transaction(
     }
     let chain = state.chain(query.network.as_deref())?;
 
-    let params = match query.block_hash {
-        Some(block_hash) if is_hex_hash(&block_hash) => json!([txid, true, block_hash]),
+    let legacy_block_hash = match query.block_hash {
+        Some(block_hash) if is_hex_hash(&block_hash) => Some(block_hash),
         Some(_) => {
             return Err(AppError::BadRequest(
                 "block_hash must be 64 hex characters".into(),
             ));
         }
-        None => json!([txid, true]),
+        None => None,
     };
 
-    // The node is preferred: it resolves previous outputs, so inputs carry real
-    // amounts. Without txindex it can only answer when given the block hash, so
-    // fall back to the address indexer, which needs no block context.
-    if let Ok(tx) = chain.rpc.call("getrawtransaction", params).await {
+    // The node is preferred: indexed providers such as BitRPC now resolve any
+    // historical transaction with just [txid, true], which also lets previous
+    // output resolution work without callers already knowing the block hash.
+    if let Ok(tx) = chain
+        .rpc
+        .call("getrawtransaction", json!([txid, true]))
+        .await
+    {
         return Ok(Json(tx_detail(chain.key, &chain.rpc, &tx).await?));
     }
 
-    let indexer = chain.tatum.as_ref().ok_or_else(|| {
-        AppError::NotFound(
-            "transaction was not found; this node has no txindex, so either supply block_hash or set TATUM_API_KEY"
-                .into(),
-        )
-    })?;
+    // Keep compatibility with non-indexed Bitcoin Core nodes where the caller
+    // arrived from a block page that already supplied the block hash.
+    if let Some(block_hash) = legacy_block_hash {
+        if let Ok(tx) = chain
+            .rpc
+            .call("getrawtransaction", json!([txid, true, block_hash]))
+            .await
+        {
+            return Ok(Json(tx_detail(chain.key, &chain.rpc, &tx).await?));
+        }
+    }
 
-    let tx = indexer.transaction(&txid).await?;
-    let tip_height = chain
-        .rpc
-        .call("getblockchaininfo", json!([]))
-        .await
-        .ok()
-        .and_then(|info| info.get("blocks").and_then(Value::as_u64));
+    // The address indexer fallback needs no block context, but may carry less
+    // input detail than the node path.
+    if let Some(indexer) = chain.tatum.as_ref() {
+        let tx = indexer.transaction(&txid).await?;
+        let tip_height = chain
+            .rpc
+            .call("getblockchaininfo", json!([]))
+            .await
+            .ok()
+            .and_then(|info| info.get("blocks").and_then(Value::as_u64));
 
-    Ok(Json(indexed_tx_detail(chain.key, &tx, tip_height)))
+        return Ok(Json(indexed_tx_detail(chain.key, &tx, tip_height)));
+    }
+
+    Err(AppError::NotFound(
+        "transaction was not found by the configured Bitcoin data provider".into(),
+    ))
 }
 
 /// Map an indexer transaction onto the same shape the node path produces.
@@ -286,7 +303,6 @@ fn address_transaction(tx: &Value, address: &str) -> AddressTransaction {
                 .sum()
         })
         .unwrap_or_default();
-
 
     AddressTransaction {
         txid: optional_string(tx, "hash").unwrap_or_default(),
@@ -528,11 +544,16 @@ mod tests {
     #[test]
     fn address_type_covers_each_script_form() {
         assert_eq!(address_type("bc1pfeessrawgf"), "taproot");
-        assert_eq!(address_type("bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8t"), "segwit");
-        assert_eq!(address_type("3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ4"), "script hash");
+        assert_eq!(
+            address_type("bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8t"),
+            "segwit"
+        );
+        assert_eq!(
+            address_type("3K9KZZPB8NRwZVP5wNKX4VYhnswrJxpgZ4"),
+            "script hash"
+        );
         assert_eq!(address_type("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"), "legacy");
         assert_eq!(address_type("tb1p0000"), "taproot");
         assert_eq!(address_type("???"), "bitcoin address");
     }
-
 }

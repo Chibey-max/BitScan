@@ -366,4 +366,3 @@ mod tests {
         assert_eq!(btc_string_to_sat("-1"), 0, "negatives clamp to zero");
     }
 }
-
