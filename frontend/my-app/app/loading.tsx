@@ -3,7 +3,7 @@ import SiteHeader from "@/app/site-header";
 export default function Loading() {
   return (
     <main className="app-shell">
-      <SiteHeader live={false} />
+      <SiteHeader status="syncing" />
       <section className="dashboard-wrap explorer-stage">
         <div className="skeleton skeleton-command" />
         <div className="skeleton-grid">
