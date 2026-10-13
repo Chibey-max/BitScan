@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { NetworkKey, networkHref } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
+import { AutoRetryRefresh, RetryNowButton } from "@/app/recovery-actions";
 import SiteHeader from "@/app/site-header";
 
 type ErrorStateProps = {
@@ -35,7 +36,9 @@ export default function ErrorState({
           <p className="section-kicker">{eyebrow}</p>
           <h1>{title}</h1>
           <p>{message}</p>
+          <AutoRetryRefresh reason={`error:${title}`} showNotice />
           <div className="error-actions">
+            <RetryNowButton />
             <Link href={networkHref(primaryHref, network)} className="outline-button">
               <MaterialIcon name="arrow_back" />
               {primaryLabel}

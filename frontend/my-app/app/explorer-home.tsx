@@ -17,6 +17,7 @@ import {
 } from "@/app/lib/explorer";
 import MaterialIcon from "@/app/material-icon";
 import RelativeTime from "@/app/relative-time";
+import { AutoRetryRefresh } from "@/app/recovery-actions";
 import SiteHeader from "@/app/site-header";
 
 type ExplorerHomeProps = {
@@ -49,6 +50,9 @@ export default function ExplorerHome({
   return (
     <main className="app-shell">
       <SiteHeader live={state === "live"} network={network} />
+      {state === "demo" ? (
+        <AutoRetryRefresh reason={`demo:${network}`} showNotice />
+      ) : null}
       <div className="dashboard-wrap explorer-stage">
         <section className="chain-hero reveal-panel reveal-delay-1">
           <div className="tip-card">

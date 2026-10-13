@@ -90,15 +90,15 @@ async function HomePanels({
   let nextFromHeight: number | undefined;
 
   const [tipResult, mempoolResult, blocksResult] = await Promise.allSettled([
-    getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live, 6_000),
-    getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live, 6_000),
+    getJson<Tip>(withNetwork("/api/tip", network), REVALIDATE.live, 12_000),
+    getJson<Mempool>(withNetwork("/api/mempool", network), REVALIDATE.live, 12_000),
     getJson<BlocksResponse>(
       withNetwork(
         `/api/blocks?limit=8${fromHeight === undefined ? "" : `&from_height=${fromHeight}`}`,
         network,
       ),
       REVALIDATE.live,
-      10_000,
+      15_000,
     ),
   ]);
 

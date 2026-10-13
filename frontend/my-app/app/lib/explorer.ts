@@ -258,6 +258,27 @@ export class ApiError extends Error {
   }
 }
 
+type CachedJson = {
+  value: unknown;
+  storedAt: number;
+  staleUntil: number;
+};
+
+type GetJsonOptions = {
+  allowStaleOnError?: boolean;
+  staleTtlMs?: number;
+};
+
+const DEFAULT_TIMEOUT_MS =
+  process.env.NODE_ENV === "production" ? 12_000 : 8_000;
+const DEFAULT_STALE_TTL_MS = 15 * 60_000;
+const MAX_FRONTEND_STALE_ENTRIES = 120;
+
+const frontendStaleCache: Map<string, CachedJson> =
+  ((globalThis as typeof globalThis & {
+    __bitscanFrontendStaleCache?: Map<string, CachedJson>;
+  }).__bitscanFrontendStaleCache ??= new Map());
+
 /**
  * Seconds of staleness allowed per request. Next's data cache is keyed on the
  * URL, so repeat navigation to the same view is served without touching the
@@ -279,18 +300,33 @@ export const REVALIDATE = {
 export async function getJson<T>(
   path: string,
   revalidate: number = REVALIDATE.live,
-  timeoutMs: number = 8_000,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  options: GetJsonOptions = {},
 ): Promise<T> {
+  const startedAt = Date.now();
+  const url = `${API_BASE}${path}`;
+  const cacheKey = `${API_BASE}:${path}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(url, {
       headers: { accept: "application/json" },
       next: { revalidate },
       signal: controller.signal,
     });
+  } catch (error) {
+    logApiFetchFailure({
+      path,
+      status: error instanceof Error && error.name === "AbortError" ? "timeout" : "network",
+      startedAt,
+      timeoutMs,
+      detail: error instanceof Error ? error.message : undefined,
+    });
+    const stale = readFrontendStale<T>(cacheKey, options);
+    if (stale !== undefined) return stale;
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -303,10 +339,80 @@ export async function getJson<T>(
     } catch {
       detail = response.statusText || undefined;
     }
+    logApiFetchFailure({
+      path,
+      status: response.status,
+      startedAt,
+      timeoutMs,
+      detail,
+    });
+    const stale = shouldUseStaleForStatus(response.status)
+      ? readFrontendStale<T>(cacheKey, options)
+      : undefined;
+    if (stale !== undefined) return stale;
     throw new ApiError(response.status, detail);
   }
 
-  return response.json();
+  const payload = (await response.json()) as T;
+  writeFrontendStale(cacheKey, payload, options);
+  return payload;
+}
+
+function shouldUseStaleForStatus(status: number) {
+  return status === 429 || status === 502 || status === 503 || status === 504 || status >= 500;
+}
+
+function readFrontendStale<T>(cacheKey: string, options: GetJsonOptions) {
+  if (options.allowStaleOnError === false) return undefined;
+  const cached = frontendStaleCache.get(cacheKey);
+  if (!cached || cached.staleUntil < Date.now()) return undefined;
+  console.warn("[bitscan-api] serving stale frontend cache", {
+    ageMs: Date.now() - cached.storedAt,
+  });
+  return cached.value as T;
+}
+
+function writeFrontendStale<T>(cacheKey: string, value: T, options: GetJsonOptions) {
+  if (options.allowStaleOnError === false) return;
+  if (frontendStaleCache.size >= MAX_FRONTEND_STALE_ENTRIES) {
+    const oldestKey = frontendStaleCache.keys().next().value;
+    if (oldestKey) frontendStaleCache.delete(oldestKey);
+  }
+  frontendStaleCache.set(cacheKey, {
+    value,
+    storedAt: Date.now(),
+    staleUntil: Date.now() + (options.staleTtlMs ?? DEFAULT_STALE_TTL_MS),
+  });
+}
+
+function logApiFetchFailure({
+  path,
+  status,
+  startedAt,
+  timeoutMs,
+  detail,
+}: {
+  path: string;
+  status: number | "timeout" | "network";
+  startedAt: number;
+  timeoutMs: number;
+  detail?: string;
+}) {
+  let host = "unconfigured";
+  try {
+    host = new URL(API_BASE).host;
+  } catch {
+    host = "invalid-api-base";
+  }
+  console.warn("[bitscan-api] fetch failed", {
+    status,
+    path,
+    apiHost: host,
+    hasApiBaseUrl: Boolean(process.env.NEXT_PUBLIC_API_BASE_URL),
+    durationMs: Date.now() - startedAt,
+    timeoutMs,
+    detail,
+  });
 }
 
 export function errorMessage(error: unknown, fallback: string) {

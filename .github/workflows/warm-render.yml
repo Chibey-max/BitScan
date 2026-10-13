@@ -1,0 +1,16 @@
+name: Warm Render API
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping BitScan API health
+        run: |
+          curl --fail --show-error --silent --max-time 25 \
+            https://bitscan-api.onrender.com/health
